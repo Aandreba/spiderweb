@@ -12,6 +12,11 @@ extern "C" {
     pub fn clear_interval (id: f64);
 }
 
+/// Handler of a JavaScript interval
+/// 
+/// Once every specified time delay, the handle's callback will be called, and a new value is sent to the stream.
+/// 
+/// When dropped, the interval will be automatically cleared and it's underlying channel closed.
 #[derive(Debug)]
 pub struct Interval<'a, T: 'a> {
     id: f64,
@@ -21,6 +26,7 @@ pub struct Interval<'a, T: 'a> {
 }
 
 impl<'a, T> Interval<'a, T> {
+    /// Creates a new interval that executes `f` with the specified time delay of `timeout`. 
     pub fn new<F: 'a + FnMut() -> T> (mut f: F, timeout: Duration) -> Self {
         let (send, recv) = channel::<T>();
         let mut send = Some(send);
@@ -51,19 +57,32 @@ impl<'a, T> Interval<'a, T> {
 }
 
 impl<'a, T> Interval<'a, T> {
+    /// Returns the id of the interval.
+    /// 
+    /// # Safety
+    /// This handler must be forgoten, or this id must not be used to clear the interval manually.
+    /// Both things ocurring is considered undefined bahaviour.
     #[inline]
     pub unsafe fn id (&self) -> f64 {
         self.id
     }
 
+    /// Converts the handler into its raw components.
+    /// 
+    /// After calling this method, the caller is responsable for dropping the closure and clearing the
+    /// interval.
     #[inline]
-    pub unsafe fn into_raw_parts (self) -> (f64, Receiver<T>, Closure<dyn 'static + FnMut()>) {
+    pub fn into_raw_parts (self) -> (f64, Receiver<T>, Closure<dyn 'static + FnMut()>) {
         unsafe {
             let this = ManuallyDrop::new(self);
             (this.id, core::ptr::read(&this.recv), core::ptr::read(&this._closure))
         }
     }
 
+    /// Creates a handle from its raw components.
+    /// 
+    /// # Safety
+    /// 
     #[inline]
     pub unsafe fn from_raw_parts (id: f64, recv: Receiver<T>, closure: Closure<dyn 'static + FnMut()>) -> Self {
         return Self {
@@ -78,10 +97,8 @@ impl<'a, T> Interval<'a, T> {
 impl<T> Interval<'static, T> {
     #[inline]
     pub fn leak (self) -> (f64, Receiver<T>) {
-        unsafe {
-            let (id, recv, _) = self.into_raw_parts();
-            (id, recv)
-        }
+        let (id, recv, _) = self.into_raw_parts();
+        (id, recv)
     }
 }
 

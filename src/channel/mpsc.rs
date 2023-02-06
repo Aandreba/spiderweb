@@ -7,6 +7,7 @@ use std::{
     task::Waker,
 };
 
+/// Creates a new MPSC channel
 #[inline]
 pub fn channel<T>() -> (Sender<T>, Receiver<T>) {
     let inner = Inner {
@@ -28,11 +29,13 @@ struct Inner<T> {
     waker: Cell<Option<Waker>>,
 }
 
+/// Sender of [`channel`]
 #[derive(Debug)]
 pub struct Sender<T> {
     inner: Weak<Inner<T>>,
 }
 
+/// Receiver of [`channel`]
 #[derive(Debug)]
 pub struct Receiver<T> {
     inner: Rc<Inner<T>>,

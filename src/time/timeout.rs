@@ -19,19 +19,16 @@ pub struct Timeout<'a, T: 'a> {
     id: f64,
     recv: Receiver<T>,
     _closure: Closure<dyn 'static + FnMut()>,
-    _phtm: PhantomData<(
-        Closure<dyn 'a + FnOnce() -> T>,
-        Closure<dyn 'a + Future<Output = T>>,
-    )>,
+    _phtm: PhantomData<Closure<dyn 'a + FnOnce() -> T>>,
 }
 
 impl<'a, T> Timeout<'a, T> {
     #[inline]
-    pub fn new<F: 'a + FnOnce() -> T> (f: F, timeout: Duration) -> Self {
+    pub fn new<F: 'a + FnOnce() -> T>(f: F, timeout: Duration) -> Self {
         Self::new_with_millis(f, timeout2millis(timeout))
     }
 
-    pub(crate) fn new_with_millis<F: 'a + FnOnce() -> T> (f: F, millis: i32) -> Self {
+    pub(crate) fn new_with_millis<F: 'a + FnOnce() -> T>(f: F, millis: i32) -> Self {
         let (send, recv) = channel::<T>();
         let mut f = Some(move || send.send(f()));
 
@@ -58,7 +55,7 @@ impl<'a, T> Timeout<'a, T> {
 
 impl<'a, Fut: Future> Timeout<'a, Fut> {
     #[inline]
-    pub fn new_async (fut: Fut, timeout: Duration) -> futures::future::Flatten<Self> {
+    pub fn new_async(fut: Fut, timeout: Duration) -> futures::future::Flatten<Self> {
         Self::new(move || fut, timeout).flatten()
     }
 }
