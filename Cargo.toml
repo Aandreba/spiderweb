@@ -4,8 +4,11 @@ version = "0.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[features]
+nightly = []
 
 [dependencies]
+docfg = "0.1.0"
 futures = "0.3.26"
 js-sys = "0.3.61"
 pin-project-lite = "0.2.9"
@@ -14,3 +17,9 @@ wasm-bindgen-futures = "0.4.34"
 
 [dev-dependencies]
 wasm-bindgen-test = "0.3.34"
+
+[package.metadata.docs.rs]
+all-features = true
+default-target = "wasm32-unkown-unknown"
+targets = []
+rustdoc-args = ["--cfg", "docsrs"]

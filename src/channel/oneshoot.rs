@@ -7,6 +7,7 @@ use std::{
     task::{Context, Poll, Waker},
 };
 
+/// Creates a new oneshoot channel
 #[inline]
 pub fn channel<T>() -> (Sender<T>, Receiver<T>) {
     let inner = Inner {
@@ -28,10 +29,15 @@ struct Inner<T> {
     waker: Cell<Option<Waker>>,
 }
 
+/// Sender of [`channel`]
 pub struct Sender<T> {
     inner: Weak<Inner<T>>,
 }
 
+/// Receiver of [`channel`].
+/// 
+/// If the channel's [`Sender`] is dropped before it sends any value, this future
+/// will return `None`.
 pub struct Receiver<T> {
     inner: Rc<Inner<T>>,
 }
@@ -62,7 +68,7 @@ impl<T> Sender<T> {
 
 impl<T> Receiver<T> {
     #[inline]
-    pub(crate) fn poll_unchecked(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<T> {
+    pub fn poll_unchecked(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<T> {
         match self.inner.value.take() {
             Some(x) => std::task::Poll::Ready(x),
             None => {

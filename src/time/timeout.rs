@@ -1,7 +1,6 @@
 use super::timeout2millis;
 use crate::channel::oneshoot::{channel, Receiver};
-use futures::Future;
-use wasm_bindgen_futures::spawn_local;
+use futures::{Future, FutureExt};
 use std::{marker::PhantomData, mem::ManuallyDrop, pin::Pin, time::Duration};
 use wasm_bindgen::{
     prelude::{wasm_bindgen, Closure},
@@ -27,7 +26,12 @@ pub struct Timeout<'a, T: 'a> {
 }
 
 impl<'a, T> Timeout<'a, T> {
+    #[inline]
     pub fn new<F: 'a + FnOnce() -> T> (f: F, timeout: Duration) -> Self {
+        Self::new_with_millis(f, timeout2millis(timeout))
+    }
+
+    pub(crate) fn new_with_millis<F: 'a + FnOnce() -> T> (f: F, millis: i32) -> Self {
         let (send, recv) = channel::<T>();
         let mut f = Some(move || send.send(f()));
 
@@ -41,7 +45,7 @@ impl<'a, T> Timeout<'a, T> {
         };
 
         let closure = Closure::wrap(closure);
-        let id = set_timeout(closure.as_ref(), timeout2millis(timeout));
+        let id = set_timeout(closure.as_ref(), millis);
 
         return Self {
             id,
@@ -50,32 +54,12 @@ impl<'a, T> Timeout<'a, T> {
             _phtm: PhantomData,
         };
     }
+}
 
-    pub fn new_async<Fut: 'a + Future<Output = T>>(fut: Fut, timeout: Duration) -> Self where T: 'static {
-        let (send, recv) = channel::<T>();
-        let fut = Box::pin(async move { send.send(fut.await) });
-        let mut fut = Some(unsafe {
-            core::mem::transmute::<Pin<Box<dyn 'a + Future<Output = ()>>>, Pin<Box<dyn 'static + Future<Output = ()>>>>(fut)
-        });
-
-        let closure = Box::new(move || {
-            let fut = fut.take().expect_throw("Future called multiple times");
-            spawn_local(fut);
-        });
-
-        let closure = unsafe {
-            core::mem::transmute::<Box<dyn 'a + FnMut()>, Box<dyn 'static + FnMut()>>(closure)
-        };
-
-        let closure = Closure::wrap(closure);
-        let id = set_timeout(closure.as_ref(), timeout2millis(timeout));
-
-        return Self {
-            id,
-            recv,
-            _closure: closure,
-            _phtm: PhantomData,
-        };
+impl<'a, Fut: Future> Timeout<'a, Fut> {
+    #[inline]
+    pub fn new_async (fut: Fut, timeout: Duration) -> futures::future::Flatten<Self> {
+        Self::new(move || fut, timeout).flatten()
     }
 }
 
