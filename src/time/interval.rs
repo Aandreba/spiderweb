@@ -12,7 +12,7 @@ extern "C" {
     pub fn clear_interval (id: f64);
 }
 
-/// Handler of a JavaScript interval
+/// Handler of a JavaScript interval.
 /// 
 /// Once every specified time delay, the handle's callback will be called, and a new value is sent to the stream.
 /// 
@@ -61,7 +61,7 @@ impl<'a, T> Interval<'a, T> {
     /// 
     /// # Safety
     /// This handler must be forgoten, or this id must not be used to clear the interval manually.
-    /// Both things ocurring is considered undefined bahaviour.
+    /// Both things ocurring is considered undefined behavior.
     #[inline]
     pub unsafe fn id (&self) -> f64 {
         self.id
@@ -82,7 +82,10 @@ impl<'a, T> Interval<'a, T> {
     /// Creates a handle from its raw components.
     /// 
     /// # Safety
+    /// Calling this function with elements that haven't originated from [`into_raw_parts`]
+    /// is likely to be undefined behavior.
     /// 
+    /// [`into_raw_parts`]: Interval::into_raw_parts
     #[inline]
     pub unsafe fn from_raw_parts (id: f64, recv: Receiver<T>, closure: Closure<dyn 'static + FnMut()>) -> Self {
         return Self {
@@ -95,6 +98,7 @@ impl<'a, T> Interval<'a, T> {
 }
 
 impl<T> Interval<'static, T> {
+    /// Consumes and leaks the interval, returning it's id and receiver. 
     #[inline]
     pub fn leak (self) -> (f64, Receiver<T>) {
         let (id, recv, _) = self.into_raw_parts();

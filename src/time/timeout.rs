@@ -15,6 +15,12 @@ extern "C" {
     pub fn clear_timeout(id: f64);
 }
 
+/// Handler of a JavaScript timeout.
+/// 
+/// After the specified time delay, the handle's callback will be called, and it's return value will become available
+/// to the future.
+/// 
+/// When dropped, the timeout will be automatically cleared, it's underlying channel closed.
 pub struct Timeout<'a, T: 'a> {
     id: f64,
     recv: Receiver<T>,
@@ -23,6 +29,7 @@ pub struct Timeout<'a, T: 'a> {
 }
 
 impl<'a, T> Timeout<'a, T> {
+    /// Creates a new timeout that executes `f` after the specified time delay of `timeout`. 
     #[inline]
     pub fn new<F: 'a + FnOnce() -> T>(f: F, timeout: Duration) -> Self {
         Self::new_with_millis(f, timeout2millis(timeout))
@@ -54,6 +61,8 @@ impl<'a, T> Timeout<'a, T> {
 }
 
 impl<'a, Fut: Future> Timeout<'a, Fut> {
+    /// Creates a timeout that resolves to a [`Future`], and then it (the `Timeout`) is immediately flattened,
+    /// returning a [`Future`] that resolves to the timeout's future output
     #[inline]
     pub fn new_async(fut: Fut, timeout: Duration) -> futures::future::Flatten<Self> {
         Self::new(move || fut, timeout).flatten()
@@ -61,13 +70,22 @@ impl<'a, Fut: Future> Timeout<'a, Fut> {
 }
 
 impl<'a, T> Timeout<'a, T> {
+    /// Returns the id of the timeout.
+    /// 
+    /// # Safety
+    /// This handler must be forgoten, or this id must not be used to clear the timeout manually.
+    /// Both things ocurring is considered undefined behavior.
     #[inline]
     pub unsafe fn id(&self) -> f64 {
         self.id
     }
 
+    /// Converts the handler into its raw components.
+    /// 
+    /// After calling this method, the caller is responsable for dropping the closure and clearing the
+    /// timeout.
     #[inline]
-    pub unsafe fn into_raw_parts(self) -> (f64, Receiver<T>, Closure<dyn 'static + FnMut()>) {
+    pub fn into_raw_parts(self) -> (f64, Receiver<T>, Closure<dyn 'static + FnMut()>) {
         unsafe {
             let this = ManuallyDrop::new(self);
             (
@@ -78,6 +96,13 @@ impl<'a, T> Timeout<'a, T> {
         }
     }
 
+    /// Creates a handle from its raw components.
+    /// 
+    /// # Safety
+    /// Calling this function with elements that haven't originated from [`into_raw_parts`]
+    /// is likely to be undefined behavior.
+    /// 
+    /// [`into_raw_parts`]: Interval::into_raw_parts
     #[inline]
     pub unsafe fn from_raw_parts(
         id: f64,
@@ -94,12 +119,11 @@ impl<'a, T> Timeout<'a, T> {
 }
 
 impl<T> Timeout<'static, T> {
+    /// Consumes and leaks the timeout, returning it's id and receiver. 
     #[inline]
     pub fn leak(self) -> (f64, Receiver<T>) {
-        unsafe {
-            let (id, recv, _) = self.into_raw_parts();
-            (id, recv)
-        }
+        let (id, recv, _) = self.into_raw_parts();
+        (id, recv)
     }
 }
 

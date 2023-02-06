@@ -9,7 +9,7 @@ use std::{task::Poll, time::Duration};
 /// specifics or runtime-dependent functionality. It will never sleep less.
 ///
 /// Unlinke [`Interval`] and [`Timeout`], this method will not saturate its duration if it exceedes [`MAX_DURATION`].
-/// Instead, [`sleep`] will concatenate [`Timeout`]s until the desired duration is reached
+/// Instead, [`sleep`] will concatenate [`Timeout`]s until the desired duration is reached.
 /// 
 /// [`Interval`]: super::Interval
 /// [`Timeout`]: super::Timeout

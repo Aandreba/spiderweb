@@ -10,8 +10,11 @@ macro_rules! flat_mod {
     };
 }
 
+/// Time-related functionality
 pub mod time;
+/// `!Send` and `!Sync` channels designed to send information between JavaScript contexts
 pub mod channel;
+/// Task-related functionality
 pub mod task;
 
 #[inline(always)]
