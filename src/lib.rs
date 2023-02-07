@@ -10,12 +10,16 @@ macro_rules! flat_mod {
     };
 }
 
-/// Time-related functionality
-pub mod time;
 /// `!Send` and `!Sync` channels designed to send information between JavaScript contexts
 pub mod channel;
+/// Document Object Model
+pub mod dom;
+/// Cells designed to modify and propagate state.
+pub mod state;
 /// Task-related functionality
 pub mod task;
+/// Time-related functionality
+pub mod time;
 
 #[inline(always)]
-pub(crate) fn noop () {}
+pub(crate) fn noop() {}

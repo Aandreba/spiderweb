@@ -1,5 +1,10 @@
 use futures::StreamExt;
-use safeweb::time::{Interval, Timeout};
+use js_sys::Array;
+use spiderweb::{
+    dom::{append_to_body, Text},
+    state::State,
+    time::{Interval, Timeout},
+};
 use std::time::Duration;
 use wasm_bindgen_test::*;
 
@@ -30,4 +35,20 @@ async fn timeout() {
     );
 
     assert_eq!(int.await, 21)
+}
+
+#[wasm_bindgen_test]
+async fn text() {
+    // Static
+    append_to_body(&Text::new_static("Hello")).unwrap();
+
+    // Dynamic
+    let text = State::new(String::new());
+    let interval = Interval::new(|| text.mutate(|x| x.push('a')), Duration::from_millis(500));
+
+    let text = Text::new_stringify(&text);
+    append_to_body(&text).unwrap();
+
+    let _ = interval.take(5).collect::<Vec<_>>().await;
+    drop(text);
 }

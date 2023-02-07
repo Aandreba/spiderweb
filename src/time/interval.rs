@@ -7,9 +7,9 @@ use super::timeout2millis;
 #[wasm_bindgen]
 extern "C" {
     #[wasm_bindgen(js_name = setInterval)]
-    pub fn set_interval (handler: &JsValue, millis: i32) -> f64;
+    fn set_interval (handler: &JsValue, millis: i32) -> f64;
     #[wasm_bindgen(js_name = clearInterval)]
-    pub fn clear_interval (id: f64);
+    fn clear_interval (id: f64);
 }
 
 /// Handler of a JavaScript interval.

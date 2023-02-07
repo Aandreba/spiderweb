@@ -54,10 +54,10 @@ impl<T> Sender<T> {
             if let Some(waker) = inner.waker.take() {
                 waker.wake()
             }
-            return Ok(())
+            return Ok(());
         }
 
-        return Err(v)
+        return Err(v);
     }
 }
 

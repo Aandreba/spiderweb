@@ -35,7 +35,7 @@ pub struct Sender<T> {
 }
 
 /// Receiver of [`channel`].
-/// 
+///
 /// If the channel's [`Sender`] is dropped before it sends any value, this future
 /// will return `None`.
 pub struct Receiver<T> {

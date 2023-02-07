@@ -10,9 +10,9 @@ use wasm_bindgen::{
 #[wasm_bindgen]
 extern "C" {
     #[wasm_bindgen(js_name = setTimeout)]
-    pub fn set_timeout(handler: &JsValue, millis: i32) -> f64;
+    fn set_timeout(handler: &JsValue, millis: i32) -> f64;
     #[wasm_bindgen(js_name = clearTimeout)]
-    pub fn clear_timeout(id: f64);
+    fn clear_timeout(id: f64);
 }
 
 /// Handler of a JavaScript timeout.
@@ -102,7 +102,7 @@ impl<'a, T> Timeout<'a, T> {
     /// Calling this function with elements that haven't originated from [`into_raw_parts`]
     /// is likely to be undefined behavior.
     /// 
-    /// [`into_raw_parts`]: Interval::into_raw_parts
+    /// [`into_raw_parts`]: Timeout::into_raw_parts
     #[inline]
     pub unsafe fn from_raw_parts(
         id: f64,

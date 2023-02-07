@@ -1,4 +1,4 @@
-use crate::{time::Timeout, noop};
+use crate::{noop, time::Timeout};
 
 /// Cooperatively gives up a timeslice to the JavaScript scheduler.
 ///
