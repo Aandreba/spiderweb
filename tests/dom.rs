@@ -1,7 +1,7 @@
-use std::time::Duration;
+use std::{time::Duration, rc::Rc, ops::{AddAssign, SubAssign}};
 use futures::StreamExt;
 use spiderweb::{
-    dom::{Text, append_to_body},
+    dom::{Text, append_to_body, std::Button},
     state::State,
     time::Interval,
 };
@@ -15,7 +15,7 @@ wasm_bindgen_test_configure!(run_in_browser);
 async fn client_macro() -> Result<(), JsValue> {
     let text = State::new(String::new());
     let interval = Interval::new(
-        || text.mutate(|x| x.push('a')),
+        || text.update(|x| x.push('a')),
         Duration::from_millis(500)
     );
     
@@ -29,5 +29,27 @@ async fn client_macro() -> Result<(), JsValue> {
     append_to_body(text)?;
     interval.take(5).collect::<()>().await;
 
+    return Ok(())
+}
+
+#[wasm_bindgen_test]
+async fn counter() -> Result<(), JsValue> {
+    let value = Rc::new(State::new(0i32));
+
+    let my_value = value.clone();
+    let inc = Button::new("+", move || my_value.update(|x| x.add_assign(1)));
+
+    let my_value = value.clone();
+    let dec = Button::new("-", move || my_value.update(|x| x.sub_assign(1)));
+
+    let text = client! {
+        <div>
+            <span>{"Current value: "}{Text::display(&value)}</span>
+            {inc}
+            {dec}
+        </div>
+    }?;
+
+    append_to_body(text)?;
     return Ok(())
 }

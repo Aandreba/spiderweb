@@ -46,7 +46,7 @@ impl<'a, T: ?Sized> State<'a, T> {
     }
 
     #[inline]
-    pub fn mutate<F: FnOnce(&mut T)>(&self, f: F) {
+    pub fn update<F: FnOnce(&mut T)>(&self, f: F) {
         unsafe {
             f(&mut *self.inner.get());
             self.notify()

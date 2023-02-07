@@ -1,7 +1,7 @@
 use derive_syn_parse::Parse;
-use proc_macro2::TokenStream;
+use proc_macro2::{Ident, TokenStream};
 use quote::{quote, ToTokens};
-use syn::{braced, parse::Parse, spanned::Spanned, Expr, Path, Token};
+use syn::{braced, ext::IdentExt, parse::Parse, spanned::Spanned, Expr, Path, Token};
 
 pub enum Content {
     Element(Element),
@@ -12,6 +12,34 @@ pub struct Element {
     pub open: OpenTag,
     pub content: Vec<Content>,
     pub close: Option<CloseTag>,
+}
+
+#[derive(Parse)]
+pub struct Attribute {
+    pub name: Ident,
+    pub eq_token: Token![=],
+    #[brace]
+    pub brace_token: syn::token::Brace,
+    #[inside(brace_token)]
+    pub value: Expr,
+}
+
+#[derive(Parse)]
+pub struct OpenTag {
+    pub open_bracket: Token![<],
+    pub path: Path,
+    #[call(parse_attributes)]
+    pub attrs: Vec<Attribute>,
+    pub end_bracket: Option<Token![/]>,
+    pub close_bracket: Token![>],
+}
+
+#[derive(Parse)]
+pub struct CloseTag {
+    pub open_bracket: Token![<],
+    pub end_bracker: Token![/],
+    pub path: Path,
+    pub close_bracket: Token![>],
 }
 
 impl Content {
@@ -93,22 +121,6 @@ impl Parse for Element {
     }
 }
 
-#[derive(Parse)]
-pub struct OpenTag {
-    pub open_bracket: Token![<],
-    pub path: Path,
-    pub end_bracket: Option<Token![/]>,
-    pub close_bracket: Token![>],
-}
-
-#[derive(Parse)]
-pub struct CloseTag {
-    pub open_bracket: Token![<],
-    pub end_bracker: Token![/],
-    pub path: Path,
-    pub close_bracket: Token![>],
-}
-
 impl ToTokens for Element {
     #[inline]
     fn to_tokens(&self, tokens: &mut TokenStream) {
@@ -116,7 +128,7 @@ impl ToTokens for Element {
             Some(x) if x.to_string().starts_with(char::is_lowercase) => {
                 client_primitive(self, tokens)
             }
-            _ => todo!(),
+            _ => client_component(self, tokens),
         }
         .into();
     }
@@ -140,4 +152,38 @@ fn client_primitive(Element { open, content, .. }: &Element, tokens: &mut TokenS
             )
         })()
     });
+}
+
+fn client_component(Element { open, content, .. }: &Element, tokens: &mut TokenStream) {
+    let path = &open.path;
+    let attrs = open.attrs.iter().map(|Attribute { name, value, .. }| {
+        quote! {
+           #name: #value
+        }
+    });
+
+    if content.is_empty() {
+        return tokens.extend(quote! {
+            ::spiderweb::dom::Component::render(#path { #(#attrs),* })
+        });
+    }
+
+    let content = content.iter().map(Content::render);
+    tokens.extend(quote! {
+        (|| {
+            ::std::result::Result::<::spiderweb::dom::Element::<_>, ::spiderweb::wasm_bindgen::JsValue>::Ok(
+                ::spiderweb::dom::Component::render(#path { #(#attrs),* })?.
+                #(append_child_inner(#content)?).*
+            )
+        })()
+    });
+}
+
+#[inline]
+fn parse_attributes(input: syn::parse::ParseStream) -> syn::Result<Vec<Attribute>> {
+    let mut result = Vec::new();
+    while input.peek(Ident::peek_any) {
+        result.push(input.parse()?)
+    }
+    return Ok(result);
 }

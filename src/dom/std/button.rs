@@ -4,8 +4,8 @@ use wasm_bindgen::{prelude::Closure, JsCast};
 use crate::dom::{Component, Element, Text};
 
 pub struct Button {
-    name: Cow<'static, str>,
-    onclick: Closure<dyn FnMut()>
+    pub name: Cow<'static, str>,
+    pub onclick: Closure<dyn FnMut()>
 }
 
 impl Button {

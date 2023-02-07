@@ -12,6 +12,7 @@ extern "C" {
     #[derive(Debug, Clone)]
     #[wasm_bindgen(extends = DomNode)]
     type Document;
+    #[derive(Debug, Clone)]
     type Performance;
 
     #[wasm_bindgen(structural, method, getter, js_class = "Window", js_name = document)]
@@ -22,7 +23,7 @@ extern "C" {
     fn performance(this: &Window) -> Option<Performance>;
     #[wasm_bindgen (structural, method, js_name = createElement)]
     fn create_element(this: &Document, tag: &str) -> DomNode;
-    #[wasm_bindgen (structural, method, js_name = createElement)]
+    #[wasm_bindgen (structural, method, js_name = addEventListener)]
     fn add_event_listener(this: &DomNode, tag: &str, listener: &Function);
     #[wasm_bindgen(structural, method)]
     fn now(this: &Performance) -> DOMHighResTimeStamp;
