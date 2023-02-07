@@ -21,7 +21,7 @@ extern "C" {
     fn body(this: &Document) -> Option<HtmlElement>;
     #[wasm_bindgen (structural, method, getter, js_class = "Window", js_name = performance)]
     fn performance (this: &Window) -> Option<Performance>;
-    #[wasm_bindgen (structural, method)]
+    #[wasm_bindgen (structural, method, js_name = createElement)]
     fn create_element (this: &Document, tag: &str) -> HtmlElement;
     #[wasm_bindgen(structural, method)]
     fn now (this: &Performance) -> DOMHighResTimeStamp;

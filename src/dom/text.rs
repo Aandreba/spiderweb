@@ -4,6 +4,7 @@ use crate::state::{Subscriber, State};
 use super::{DomNode, Node, IntoNode};
 
 pub type StaticText = Text<()>;
+pub type DisplayText<'a, T> = Text<DisplayFn<'a, T>>;
 
 #[wasm_bindgen]
 extern "C" {

@@ -6,6 +6,8 @@ use std::{
     rc::{Rc, Weak},
 };
 
+use crate::dom::{IntoNode, DisplayText};
+
 pub struct State<'a, T: ?Sized> {
     strong: UnsafeCell<Vec<Rc<dyn 'a + Subscriber<T>>>>,
     weak: UnsafeCell<Vec<Weak<dyn 'a + Subscriber<T>>>>,
@@ -88,6 +90,15 @@ impl<T: ?Sized + Display> Display for State<'_, T> {
     #[inline]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         unsafe { T::fmt(&*self.inner.get(), f) }
+    }
+}
+
+impl<'a, T: 'a + Display> IntoNode for &State<'a, T> {
+    type Node = Rc<DisplayText<'a, T>>;
+
+    #[inline]
+    fn into_node (self) -> Self::Node {
+        DisplayText::new_stringify(self)
     }
 }
 

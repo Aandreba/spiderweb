@@ -10,6 +10,9 @@ macro_rules! flat_mod {
     };
 }
 
+#[doc(hidden)]
+pub extern crate wasm_bindgen;
+
 /// `!Send` and `!Sync` channels designed to send information between JavaScript contexts
 pub mod channel;
 /// Document Object Model
@@ -20,6 +23,7 @@ pub mod state;
 pub mod task;
 /// Time-related functionality
 pub mod time;
+pub extern crate spiderweb_proc as macros;
 
 #[inline(always)]
 pub(crate) fn noop() {}
