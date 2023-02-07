@@ -26,6 +26,15 @@ pub trait ComponentRef: Component {
     fn render(&self) -> Result<Element<Self::State>, JsValue>;
 }
 
+impl<T: Component> Component for Result<T, JsValue> {
+    type State = T::State;
+
+    #[inline]
+    fn render (self) -> Result<Element<Self::State>, JsValue> {
+        self.and_then(T::render)
+    }
+}
+
 impl<T: ?Sized + ComponentRef> Component for &T {
     type State = T::State;
 
@@ -57,5 +66,22 @@ impl<T: ?Sized + ComponentRef> Component for Rc<T> {
     #[inline]
     fn render(self) -> Result<Element<Self::State>, JsValue> {
         <T as ComponentRef>::render(&self)
+    }
+}
+
+pub trait IntoComponent {
+    type Component: Component<State = Self::State>;
+    type State: Any;
+
+    fn into_component (self) -> Self::Component;
+}
+
+impl<T: Component> IntoComponent for T {
+    type Component = T;
+    type State = <T as Component>::State;
+
+    #[inline]
+    fn into_component (self) -> Self::Component {
+        self
     }
 }

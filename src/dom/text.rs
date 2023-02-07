@@ -1,7 +1,7 @@
 use std::{cell::{UnsafeCell}, borrow::Borrow, rc::{Rc, Weak}};
 use wasm_bindgen::{prelude::wasm_bindgen, JsValue};
 use crate::state::{Subscriber, State};
-use super::{DomNode, Component, Element};
+use super::{DomNode, Component, Element, IntoComponent};
 
 pub type StaticText = Text<()>;
 pub type DisplayText<'a, T> = Text<DisplayFn<'a, T>>;
@@ -82,7 +82,7 @@ impl<F> Text<F> {
 
 impl<'a, T: 'a + ?Sized + ToString> Text<DisplayFn<'a, T>> {
     #[inline]
-    pub fn new_stringify (parent: &State<'a, T>) -> Rc<Self> where T: 'a {
+    pub fn display (parent: &State<'a, T>) -> Rc<Self> where T: 'a {
         Self::new(
             parent,
             #[cfg(not(feature = "nightly"))]
@@ -90,6 +90,46 @@ impl<'a, T: 'a + ?Sized + ToString> Text<DisplayFn<'a, T>> {
             #[cfg(feature = "nightly")]
             DisplayFn(std::marker::PhantomData),
         )
+    }
+}
+
+impl IntoComponent for &str {
+    type Component = StaticText;
+    type State = ();
+
+    #[inline]
+    fn into_component (self) -> Self::Component {
+        StaticText::new_static(self)
+    }
+}
+
+impl IntoComponent for String {
+    type Component = StaticText;
+    type State = ();
+
+    #[inline]
+    fn into_component (self) -> Self::Component {
+        StaticText::new_static(&self)
+    }
+}
+
+impl IntoComponent for Box<str> {
+    type Component = StaticText;
+    type State = ();
+
+    #[inline]
+    fn into_component (self) -> Self::Component {
+        StaticText::new_static(&self)
+    }
+}
+
+impl IntoComponent for Rc<str> {
+    type Component = StaticText;
+    type State = ();
+
+    #[inline]
+    fn into_component (self) -> Self::Component {
+        StaticText::new_static(&self)
     }
 }
 

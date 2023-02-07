@@ -1,4 +1,4 @@
-use super::{create_element, Component, DomNode};
+use super::{create_element, Component, DomNode, IntoComponent};
 use js_sys::Function;
 use std::{
     any::Any,
@@ -63,29 +63,29 @@ impl<T> Element<T> {
     }
 
     #[inline]
-    pub fn append_child_inner<C: Component>(self, child: C) -> Result<Self, JsValue> {
+    pub fn append_child_inner<C: IntoComponent>(self, child: C) -> Result<Self, JsValue> {
         Self::append_child_by_deref(&self, child)?;
         return Ok(self)
     }
 
     #[inline]
-    pub fn append_child<C: Component>(&self, child: C) -> Result<ChildHandleRef<'_, T>, JsValue> {
+    pub fn append_child<C: IntoComponent>(&self, child: C) -> Result<ChildHandleRef<'_, T>, JsValue> {
         Self::append_child_by_deref(self, child)
     }
 
     #[inline]
-    pub fn append_child_shared<C: Component>(
+    pub fn append_child_shared<C: IntoComponent>(
         self: Rc<Self>,
         child: C,
     ) -> Result<ChildHandleShared<T>, JsValue> {
         Self::append_child_by_deref(self, child)
     }
 
-    pub fn append_child_by_deref<D: Deref<Target = Self>, C: Component>(
+    pub fn append_child_by_deref<D: Deref<Target = Self>, C: IntoComponent>(
         this: D,
         child: C,
     ) -> Result<ChildHandle<D>, JsValue> {
-        let child = child.render()?;
+        let child = child.into_component().render()?;
         this.inner.append_child(&child.inner)?;
 
         let id = unsafe {

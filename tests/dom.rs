@@ -5,6 +5,7 @@ use spiderweb::{
     state::State,
     time::Interval,
 };
+use spiderweb_proc::client;
 use wasm_bindgen::JsValue;
 use wasm_bindgen_test::{wasm_bindgen_test, wasm_bindgen_test_configure};
 
@@ -18,7 +19,13 @@ async fn client_macro() -> Result<(), JsValue> {
         Duration::from_millis(500)
     );
     
-    let text = Text::new_stringify(&text);
+    let text = client! {
+        <span>
+            <i>{"Hello, "}</i>
+            <b>{Text::display(&text)}</b>
+        </span>
+    }?;
+
     append_to_body(text)?;
     interval.take(5).collect::<()>().await;
 
