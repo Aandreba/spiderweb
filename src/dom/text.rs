@@ -1,6 +1,6 @@
 use std::{cell::{UnsafeCell}, borrow::Borrow, rc::{Rc, Weak}};
 use wasm_bindgen::{prelude::wasm_bindgen, JsValue};
-use crate::state::{Subscriber, State};
+use crate::state::{Listener, State};
 use super::{DomNode, Component, Element, IntoComponent};
 
 pub type StaticText = Text<()>;
@@ -75,7 +75,7 @@ impl<F> Text<F> {
             f: UnsafeCell::new(f)
         });
 
-        parent.bind_weak(Rc::downgrade(&this) as Weak<dyn Subscriber<T>>);
+        parent.bind_weak(Rc::downgrade(&this) as Weak<dyn Listener<T>>);
         return this
     }
 }
@@ -151,9 +151,9 @@ impl<F: 'static> Component for Rc<Text<F>> {
     }
 }
 
-impl<T: ?Sized, S: Borrow<str>, F: ?Sized + FnMut(&T) -> S> Subscriber<T> for Text<F> {
+impl<T: ?Sized, S: Borrow<str>, F: ?Sized + FnMut(&T) -> S> Listener<T> for Text<F> {
     #[inline]
-    fn update (&self, v: &T) {
+    fn receive (&self, v: &T) {
         unsafe {
             let s = (&mut *self.f.get())(v);
             self.inner.set_data(s.borrow())

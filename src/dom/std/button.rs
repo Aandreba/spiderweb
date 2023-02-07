@@ -24,7 +24,7 @@ impl Component for Button {
     fn render (self) -> Result<Element<Self::State>, wasm_bindgen::JsValue> {
         let element = Element::new("button", self.onclick);
         element.append_child(Text::new_static(&self.name))?;
-        element.set_callback_ref("onclick", |x| x.as_ref().unchecked_ref::<Function>());
+        element.set_callback_ref("click", |x| x.as_ref().unchecked_ref::<Function>());
         return Ok(element)
     }
 }

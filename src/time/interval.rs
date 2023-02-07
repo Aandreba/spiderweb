@@ -101,7 +101,8 @@ impl<T> Interval<'static, T> {
     /// Consumes and leaks the interval, returning it's id and receiver. 
     #[inline]
     pub fn leak (self) -> (f64, Receiver<T>) {
-        let (id, recv, _) = self.into_raw_parts();
+        let (id, recv, closure) = self.into_raw_parts();
+        closure.forget();
         (id, recv)
     }
 }

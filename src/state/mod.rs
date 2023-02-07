@@ -6,14 +6,29 @@ use std::{
     rc::{Rc, Weak},
 };
 
+enum Strong<'a, T: ?Sized> {
+    Callback (Box<dyn 'a + FnMut(&T)>),
+    Listener (Rc<dyn 'a + Listener<T>>)
+}
+
+impl<'a, T: ?Sized> Strong<'a, T> {
+    #[inline]
+    pub fn receive (&mut self, v: &T) {
+        match self {
+            Self::Callback(f) => f(v),
+            Self::Listener(l) => l.receive(v)
+        }
+    }
+}
+
 pub struct State<'a, T: ?Sized> {
-    strong: UnsafeCell<Vec<Rc<dyn 'a + Subscriber<T>>>>,
-    weak: UnsafeCell<Vec<Weak<dyn 'a + Subscriber<T>>>>,
+    strong: UnsafeCell<Vec<Strong<'a, T>>>,
+    weak: UnsafeCell<Vec<Weak<dyn 'a + Listener<T>>>>,
     inner: UnsafeCell<T>,
 }
 
-pub trait Subscriber<T: ?Sized> {
-    fn update(&self, v: &T);
+pub trait Listener<T: ?Sized> {
+    fn receive(&self, v: &T);
 }
 
 impl<'a, T: ?Sized> State<'a, T> {
@@ -54,18 +69,28 @@ impl<'a, T: ?Sized> State<'a, T> {
     }
 
     #[inline]
+    pub fn register<F: 'a + FnMut(&T)> (&self, f: F) {
+        self.register_boxed(Box::new(f))
+    }
+    
+    #[inline]
+    pub fn register_boxed (&self, f: Box<dyn 'a + FnMut(&T)>) {
+        unsafe { &mut *self.strong.get() }.push(Strong::Callback(f));
+    }
+
+    #[inline]
     unsafe fn notify(&self) {
         // Notify strongly-referenced subscribers
         // (we don't have to check if we drop them, we never will manually)
-        for sub in (&*self.strong.get()).iter() {
-            sub.update(&*self.inner.get())
+        for sub in (&mut *self.strong.get()).iter_mut() {
+            sub.receive(&*self.inner.get())
         }
         
         let subs = &mut *self.weak.get();
         let mut i = 0;
         while i < subs.len() {
             if let Some(sub) = subs.get_unchecked(i).upgrade() {
-                sub.update(&*self.inner.get());
+                sub.receive(&*self.inner.get());
                 i += 1
             } else {
                 let _ = subs.swap_remove(i);
@@ -74,12 +99,12 @@ impl<'a, T: ?Sized> State<'a, T> {
     }
 
     #[inline]
-    pub fn bind(&self, sub: Rc<dyn 'a + Subscriber<T>>) {
-        unsafe { &mut *self.strong.get() }.push(sub);
+    pub fn bind(&self, sub: Rc<dyn 'a + Listener<T>>) {
+        unsafe { &mut *self.strong.get() }.push(Strong::Listener(sub));
     }
 
     #[inline]
-    pub fn bind_weak(&self, weak: Weak<dyn 'a + Subscriber<T>>) {
+    pub fn bind_weak(&self, weak: Weak<dyn 'a + Listener<T>>) {
         unsafe { &mut *self.weak.get() }.push(weak);
     }
 }
@@ -91,23 +116,23 @@ impl<T: ?Sized + Display> Display for State<'_, T> {
     }
 }
 
-impl<V: ?Sized, T: ?Sized + Subscriber<V>> Subscriber<V> for &T {
+impl<V: ?Sized, T: ?Sized + Listener<V>> Listener<V> for &T {
     #[inline]
-    fn update(&self, v: &V) {
-        T::update(*self, v)
+    fn receive(&self, v: &V) {
+        T::receive(*self, v)
     }
 }
 
-impl<V: ?Sized, T: ?Sized + Subscriber<V>> Subscriber<V> for Box<T> {
+impl<V: ?Sized, T: ?Sized + Listener<V>> Listener<V> for Box<T> {
     #[inline]
-    fn update(&self, v: &V) {
-        T::update(self, v)
+    fn receive(&self, v: &V) {
+        T::receive(self, v)
     }
 }
 
-impl<V: ?Sized, T: ?Sized + Subscriber<V>> Subscriber<V> for Rc<T> {
+impl<V: ?Sized, T: ?Sized + Listener<V>> Listener<V> for Rc<T> {
     #[inline]
-    fn update(&self, v: &V) {
-        T::update(self, v)
+    fn receive(&self, v: &V) {
+        T::receive(self, v)
     }
 }
