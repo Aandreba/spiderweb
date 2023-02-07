@@ -4,11 +4,13 @@ use std::{
     any::Any,
     borrow::Cow,
     cell::{Cell, UnsafeCell},
+    collections::VecDeque,
     hint::unreachable_unchecked,
     marker::PhantomData,
     num::NonZeroU64,
     ops::Deref,
-    rc::Rc, collections::VecDeque, pin::Pin,
+    pin::Pin,
+    rc::Rc,
 };
 use wasm_bindgen::{JsValue, UnwrapThrowExt};
 
@@ -65,11 +67,14 @@ impl<T> Element<T> {
     #[inline]
     pub fn append_child_inner<C: IntoComponent>(self, child: C) -> Result<Self, JsValue> {
         Self::append_child_by_deref(&self, child)?;
-        return Ok(self)
+        return Ok(self);
     }
 
     #[inline]
-    pub fn append_child<C: IntoComponent>(&self, child: C) -> Result<ChildHandleRef<'_, T>, JsValue> {
+    pub fn append_child<C: IntoComponent>(
+        &self,
+        child: C,
+    ) -> Result<ChildHandleRef<'_, T>, JsValue> {
         Self::append_child_by_deref(self, child)
     }
 
@@ -116,6 +121,64 @@ impl<T> Element<T> {
     }
 }
 
+impl Element<Box<dyn Any>> {
+    #[inline]
+    pub fn downcast<T: Any>(self) -> Result<Element<T>, Self> {
+        match self.state.downcast::<T>() {
+            Ok(state) => Ok(Element {
+                inner: self.inner,
+                current_id: self.current_id,
+                children: self.children,
+                state: *state,
+            }),
+            Err(state) => Err(Self { state, ..self }),
+        }
+    }
+    
+    #[inline]
+    pub fn downcast_boxed<T: Any>(self) -> Result<Element<Box<T>>, Self> {
+        match self.state.downcast::<T>() {
+            Ok(state) => Ok(Element {
+                inner: self.inner,
+                current_id: self.current_id,
+                children: self.children,
+                state,
+            }),
+            Err(state) => Err(Self { state, ..self }),
+        }
+    }
+}
+
+impl Element<Pin<Box<dyn Any>>> {    
+    #[inline]
+    pub fn downcast<T: Unpin + Any>(self) -> Result<Element<T>, Self> {
+        let state = unsafe { Pin::into_inner_unchecked(self.state) };
+        match state.downcast::<T>() {
+            Ok(state) => Ok(Element {
+                inner: self.inner,
+                current_id: self.current_id,
+                children: self.children,
+                state: *state,
+            }),
+            Err(state) => Err(Self { state: Box::into_pin(state), ..self }),
+        }
+    }
+    
+    #[inline]
+    pub fn downcast_boxed<T: Any>(self) -> Result<Element<Pin<Box<T>>>, Self> {
+        let state = unsafe { Pin::into_inner_unchecked(self.state) };
+        match state.downcast::<T>() {
+            Ok(state) => Ok(Element {
+                inner: self.inner,
+                current_id: self.current_id,
+                children: self.children,
+                state: Box::into_pin(state),
+            }),
+            Err(state) => Err(Self { state: Box::into_pin(state), ..self }),
+        }
+    }
+}
+
 impl<T: ?Sized, E: Deref<Target = Element<T>>> ChildHandle<E> {
     /// Detaches the child from it's parent, returning the child's state
     #[inline]
@@ -125,9 +188,13 @@ impl<T: ?Sized, E: Deref<Target = Element<T>>> ChildHandle<E> {
             match children.binary_search_by(|(x, _)| x.cmp(&self.id)) {
                 Ok(x) => {
                     let element = children.remove(x).unwrap_unchecked().1;
-                    let _ = self.parent.inner.remove_child(&element.inner).unwrap_throw();
-                    return element
-                },
+                    let _ = self
+                        .parent
+                        .inner
+                        .remove_child(&element.inner)
+                        .unwrap_throw();
+                    return element;
+                }
                 Err(_) => unreachable_unchecked(),
             };
         }
