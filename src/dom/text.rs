@@ -1,4 +1,4 @@
-use std::{cell::{UnsafeCell}, borrow::Borrow, rc::{Rc, Weak}, any::Any};
+use std::{cell::{UnsafeCell}, borrow::Borrow, rc::{Rc, Weak}};
 use wasm_bindgen::{prelude::wasm_bindgen, JsValue};
 use crate::state::{Subscriber, State};
 use super::{DomNode, Component, Element};
@@ -8,6 +8,7 @@ pub type DisplayText<'a, T> = Text<DisplayFn<'a, T>>;
 
 #[wasm_bindgen]
 extern "C" {
+    #[derive(Debug, Clone)]
     #[wasm_bindgen(js_name = Text, extends = DomNode)]
     type DomText;
 
@@ -92,13 +93,21 @@ impl<'a, T: 'a + ?Sized + ToString> Text<DisplayFn<'a, T>> {
     }
 }
 
-impl<F: 'static> Component for Text<F> {
+impl Component for StaticText {
     type State = ();
 
     #[inline]
-    fn render (self, element: &Element<dyn Any>) -> Result<Element<Self::State>, JsValue> {
-        todo!()
-        //ode.append_child(&self.inner).map(|_| ())
+    fn render (self) -> Result<Element<Self::State>, JsValue> {
+        return Ok(Element::from_dom(self.inner.into(), ()))
+    }
+}
+
+impl<F: 'static> Component for Rc<Text<F>> {
+    type State = Self;
+
+    #[inline]
+    fn render (self) -> Result<Element<Self::State>, JsValue> {
+        return Ok(Element::from_dom(self.inner.clone().into(), self))
     }
 }
 

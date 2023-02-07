@@ -11,6 +11,8 @@ extern "C" {
 
     #[wasm_bindgen(structural, method, catch, js_name = appendChild)]
     pub fn append_child(this: &DomNode, node: &DomNode) -> Result<DomNode, JsValue>;
+    #[wasm_bindgen(structural, method, catch, js_name = removeChild)]
+    pub fn remove_child(this: &DomNode, node: &DomNode) -> Result<DomNode, JsValue>;
 }
 
 /// A type that can be added to the DOM

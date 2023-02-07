@@ -1,6 +1,9 @@
 #![cfg_attr(feature = "nightly", allow(incomplete_features), feature(fn_traits, unboxed_closures, tuple_trait, nonzero_ops))]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
+#[cfg(not(all(target_family = "wasm", not(target_feature = "atomics"))))]
+compile_error!("Unsupported target");
+
 macro_rules! flat_mod {
     ($($i:ident),+) => {
         $(

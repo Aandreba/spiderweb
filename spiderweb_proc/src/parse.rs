@@ -127,7 +127,7 @@ fn client_primitive(Element { open, content, .. }: &Element, tokens: &mut TokenS
 
     if content.is_empty() {
         return tokens.extend(quote! {
-            ::std::result::Result::<::spiderweb::dom::Element, ::spiderweb::wasm_bindgen::JsValue>::Ok(::spiderweb::dom::Element::new(stringify!(#path)))
+            ::std::result::Result::<::spiderweb::dom::Element, ::spiderweb::wasm_bindgen::JsValue>::Ok(::spiderweb::dom::Element::new(stringify!(#path), ()))
         });
     }
 
@@ -135,7 +135,7 @@ fn client_primitive(Element { open, content, .. }: &Element, tokens: &mut TokenS
     return tokens.extend(quote! {
         (|| {
             ::std::result::Result::<::spiderweb::dom::Element, ::spiderweb::wasm_bindgen::JsValue>::Ok(
-                ::spiderweb::dom::Element::new(stringify!(#path)).
+                ::spiderweb::dom::Element::new(stringify!(#path), ()).
                     #(append_child_inner(#content)?).*
             )
         })()
