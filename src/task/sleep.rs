@@ -11,9 +11,9 @@ use std::{task::Poll, time::Duration};
 /// Unlinke [`Interval`] and [`Timeout`], this method will not saturate its duration if it exceedes [`MAX_DURATION`].
 /// Instead, [`sleep`] will concatenate [`Timeout`]s until the desired duration is reached.
 /// 
-/// [`Interval`]: super::Interval
-/// [`Timeout`]: super::Timeout
-/// [`MAX_DURATION`]: super::MAX_DURATION
+/// [`Interval`]: crate::time::Interval
+/// [`Timeout`]: crate::time::Timeout
+/// [`MAX_DURATION`]: crate::time::MAX_DURATION
 #[inline]
 pub fn sleep(dur: Duration) -> Sleep {
     const LIMIT: u128 = i32::MAX as u128;
@@ -24,16 +24,9 @@ pub fn sleep(dur: Duration) -> Sleep {
     #[cfg(not(feature = "nightly"))]
     let map: TimeoutSet = Box::new(|_| Timeout::new_with_millis(noop, i32::MAX));
 
-    return match millis / LIMIT {
-        0 => Sleep {
-            iter: (0..0).map(map),
-            current: Timeout::new_with_millis(noop, millis as i32)
-        },
-
-        div => Sleep {
-            iter: (0..div).map(map),
-            current: Timeout::new_with_millis(noop, (div % LIMIT) as i32)
-        }
+    return Sleep {
+        iter: (0..millis / LIMIT).map(map),
+        current: Timeout::new_with_millis(noop, (millis % LIMIT) as i32)
     }
 }
 

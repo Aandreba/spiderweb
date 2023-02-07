@@ -1,13 +1,13 @@
 use std::{cell::{UnsafeCell}, borrow::Borrow, rc::{Rc, Weak}};
 use wasm_bindgen::{prelude::wasm_bindgen, JsValue};
 use crate::state::{Subscriber, State};
-use super::{JsNode, NodeRef};
+use super::{DomNode, Node, IntoNode};
 
 pub type StaticText = Text<()>;
 
 #[wasm_bindgen]
 extern "C" {
-    #[wasm_bindgen(js_name = Text, extends = JsNode)]
+    #[wasm_bindgen(js_name = Text, extends = DomNode)]
     type DomText;
 
     #[wasm_bindgen(constructor, js_class = "Text")]
@@ -91,10 +91,46 @@ impl<'a, T: 'a + ?Sized + ToString> Text<DisplayFn<'a, T>> {
     }
 }
 
-impl<F: ?Sized> NodeRef for Text<F> {
+impl<F: ?Sized> Node for Text<F> {
     #[inline]
-    fn append_to (&self, node: &JsNode) -> Result<(), JsValue> {
+    fn append_to (&self, node: &DomNode) -> Result<(), JsValue> {
         node.append_child(&self.inner).map(|_| ())
+    }
+}
+
+impl IntoNode for &str {
+    type Node = StaticText;
+
+    #[inline]
+    fn into_node (self) -> Self::Node {
+        StaticText::new_static(self)
+    }
+}
+
+impl IntoNode for String {
+    type Node = StaticText;
+
+    #[inline]
+    fn into_node (self) -> Self::Node {
+        StaticText::new_static(&self)
+    }
+}
+
+impl IntoNode for Box<str> {
+    type Node = StaticText;
+
+    #[inline]
+    fn into_node (self) -> Self::Node {
+        StaticText::new_static(&self)
+    }
+}
+
+impl IntoNode for Rc<str> {
+    type Node = StaticText;
+
+    #[inline]
+    fn into_node (self) -> Self::Node {
+        StaticText::new_static(&self)
     }
 }
 

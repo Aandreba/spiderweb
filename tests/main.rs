@@ -1,9 +1,8 @@
 use futures::StreamExt;
-use js_sys::Array;
 use spiderweb::{
     dom::{append_to_body, Text},
     state::State,
-    time::{Interval, Timeout},
+    time::{Interval, Timeout, Instant, SystemTime}, task::sleep,
 };
 use std::time::Duration;
 use wasm_bindgen_test::*;
@@ -18,7 +17,7 @@ async fn interval() {
             secs += 1;
             secs
         },
-        Duration::from_secs(1),
+        Duration::from_millis(250),
     );
 
     let mut int = int.take(5).enumerate();
@@ -38,9 +37,23 @@ async fn timeout() {
 }
 
 #[wasm_bindgen_test]
+async fn instant () {
+    let time = Instant::now();
+    sleep(Duration::from_secs(2)).await;
+    assert_eq!(time.elapsed().as_secs(), 2);
+}
+
+#[wasm_bindgen_test]
+async fn system_time () {
+    let time = SystemTime::now();
+    sleep(Duration::from_secs(2)).await;
+    assert_eq!(time.elapsed().unwrap_or_default().as_secs(), 2);
+}
+
+#[wasm_bindgen_test]
 async fn text() {
     // Static
-    append_to_body(&Text::new_static("Hello")).unwrap();
+    append_to_body("Hello world!").unwrap();
 
     // Dynamic
     let text = State::new(String::new());

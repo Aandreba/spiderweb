@@ -6,14 +6,9 @@ use std::{
     rc::{Rc, Weak},
 };
 
-#[derive(Clone)]
-enum StateSub<'a, T: ?Sized> {
-    Strong(Rc<dyn 'a + Subscriber<T>>),
-    Weak(Weak<dyn 'a + Subscriber<T>>),
-}
-
 pub struct State<'a, T: ?Sized> {
-    subs: UnsafeCell<Vec<StateSub<'a, T>>>,
+    strong: UnsafeCell<Vec<Rc<dyn 'a + Subscriber<T>>>>,
+    weak: UnsafeCell<Vec<Weak<dyn 'a + Subscriber<T>>>>,
     inner: UnsafeCell<T>,
 }
 
@@ -29,7 +24,8 @@ impl<'a, T: ?Sized> State<'a, T> {
     {
         Self {
             inner: UnsafeCell::new(v),
-            subs: UnsafeCell::new(Vec::new()),
+            strong: UnsafeCell::default(),
+            weak: UnsafeCell::default()
         }
     }
 
@@ -59,36 +55,32 @@ impl<'a, T: ?Sized> State<'a, T> {
 
     #[inline]
     unsafe fn notify(&self) {
-        let subs = &mut *self.subs.get();
-
+        // Notify strongly-referenced subscribers
+        // (we don't have to check if we drop them, we never will manually)
+        for sub in (&*self.strong.get()).iter() {
+            sub.update(&*self.inner.get())
+        }
+        
+        let subs = &mut *self.weak.get();
         let mut i = 0;
         while i < subs.len() {
-            match subs.get_unchecked(i) {
-                StateSub::Strong(sub) => {
-                    sub.update(&*self.inner.get());
-                    i += 1
-                }
-
-                StateSub::Weak(sub) => {
-                    if let Some(sub) = sub.upgrade() {
-                        sub.update(&*self.inner.get());
-                        i += 1
-                    } else {
-                        let _ = subs.swap_remove(i);
-                    }
-                }
+            if let Some(sub) = subs.get_unchecked(i).upgrade() {
+                sub.update(&*self.inner.get());
+                i += 1
+            } else {
+                let _ = subs.swap_remove(i);
             }
         }
     }
 
     #[inline]
     pub fn bind(&self, sub: Rc<dyn 'a + Subscriber<T>>) {
-        unsafe { &mut *self.subs.get() }.push(StateSub::Strong(sub));
+        unsafe { &mut *self.strong.get() }.push(sub);
     }
 
     #[inline]
     pub fn bind_weak(&self, weak: Weak<dyn 'a + Subscriber<T>>) {
-        unsafe { &mut *self.subs.get() }.push(StateSub::Weak(weak));
+        unsafe { &mut *self.weak.get() }.push(weak);
     }
 }
 

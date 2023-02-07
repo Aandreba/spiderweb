@@ -1,5 +1,5 @@
-use std::time::Duration;
-flat_mod! { interval, timeout, sleep }
+flat_mod! { interval, timeout, instant, system_time }
+pub use std::time::Duration;
 
 /// Maximum ammount of time that can be passed to [`Interval`] or [`Timeout`].
 ///

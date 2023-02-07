@@ -1,3 +1,4 @@
+flat_mod! { sleep }
 use crate::{noop, time::Timeout};
 
 /// Cooperatively gives up a timeslice to the JavaScript scheduler.
