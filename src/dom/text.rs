@@ -1,7 +1,7 @@
-use std::{cell::{UnsafeCell}, borrow::Borrow, rc::{Rc, Weak}};
+use std::{cell::{UnsafeCell}, borrow::Borrow, rc::{Rc, Weak}, any::Any};
 use wasm_bindgen::{prelude::wasm_bindgen, JsValue};
 use crate::state::{Subscriber, State};
-use super::{DomNode, Node, IntoNode};
+use super::{DomNode, Component, Element};
 
 pub type StaticText = Text<()>;
 pub type DisplayText<'a, T> = Text<DisplayFn<'a, T>>;
@@ -21,7 +21,7 @@ extern "C" {
 pub type DisplayFn<'a, T> = Box<dyn 'a + Send + Sync + FnMut(&T) -> String>;
 
 #[cfg(feature = "nightly")]
-pub struct DisplayFn<'a, T> (std::marker::PhantomData<&'a T>);
+pub struct DisplayFn<'a, T: ?Sized> (std::marker::PhantomData<&'a T>);
 
 #[cfg(feature = "nightly")]
 impl<'a, T: 'a + ?Sized + ToString> FnMut<(&T,)> for DisplayFn<'a, T> {
@@ -92,46 +92,13 @@ impl<'a, T: 'a + ?Sized + ToString> Text<DisplayFn<'a, T>> {
     }
 }
 
-impl<F: ?Sized> Node for Text<F> {
-    #[inline]
-    fn append_to (&self, node: &DomNode) -> Result<(), JsValue> {
-        node.append_child(&self.inner).map(|_| ())
-    }
-}
-
-impl IntoNode for &str {
-    type Node = StaticText;
+impl<F: 'static> Component for Text<F> {
+    type State = ();
 
     #[inline]
-    fn into_node (self) -> Self::Node {
-        StaticText::new_static(self)
-    }
-}
-
-impl IntoNode for String {
-    type Node = StaticText;
-
-    #[inline]
-    fn into_node (self) -> Self::Node {
-        StaticText::new_static(&self)
-    }
-}
-
-impl IntoNode for Box<str> {
-    type Node = StaticText;
-
-    #[inline]
-    fn into_node (self) -> Self::Node {
-        StaticText::new_static(&self)
-    }
-}
-
-impl IntoNode for Rc<str> {
-    type Node = StaticText;
-
-    #[inline]
-    fn into_node (self) -> Self::Node {
-        StaticText::new_static(&self)
+    fn render (self, element: &Element<dyn Any>) -> Result<Element<Self::State>, JsValue> {
+        todo!()
+        //ode.append_child(&self.inner).map(|_| ())
     }
 }
 

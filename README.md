@@ -1,0 +1,6 @@
+## Example
+```rust
+client! {
+    
+}
+```

@@ -1,4 +1,4 @@
-#![cfg_attr(feature = "nightly", feature(fn_traits, unboxed_closures, tuple_trait))]
+#![cfg_attr(feature = "nightly", allow(incomplete_features), feature(fn_traits, unboxed_closures, tuple_trait, nonzero_ops))]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
 macro_rules! flat_mod {

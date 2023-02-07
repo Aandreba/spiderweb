@@ -1,6 +1,8 @@
+use js_sys::Function;
 use wasm_bindgen::{prelude::wasm_bindgen, JsCast, JsValue, UnwrapThrowExt};
 
-flat_mod! { node, text, element, component }
+flat_mod! { component, text, element }
+pub mod std;
 type DOMHighResTimeStamp = f64;
 
 #[wasm_bindgen]
@@ -23,6 +25,8 @@ extern "C" {
     fn performance (this: &Window) -> Option<Performance>;
     #[wasm_bindgen (structural, method, js_name = createElement)]
     fn create_element (this: &Document, tag: &str) -> HtmlElement;
+    #[wasm_bindgen (structural, method, js_name = createElement)]
+    fn add_event_listener (this: &HtmlElement, tag: &str, listener: &Function) -> HtmlElement;
     #[wasm_bindgen(structural, method)]
     fn now (this: &Performance) -> DOMHighResTimeStamp;
 }
@@ -30,14 +34,13 @@ extern "C" {
 thread_local! {
     static WINDOW: Window = js_sys::global().dyn_into().expect_throw("Window not found");
     static DOCUMENT: Document = WINDOW.with(|win| win.document().expect_throw("Document not found!"));
-    static BODY: HtmlElement = DOCUMENT.with(|doc| doc.body().expect_throw("Document not found!"));
+    static BODY: Element<()> = DOCUMENT.with(|doc| Element::from_dom(doc.body().expect_throw("Document not found!")));
     static PERFORMANCE: Performance = WINDOW.with(|win| win.performance().expect_throw("Performance API not detected"));
 }
 
 #[inline]
-pub fn append_to_body<T: IntoNode> (node: T) -> Result<(), JsValue> {
-    let node = node.into_node();
-    BODY.with(|body| node.append_to(body))
+pub fn append_to_body<T: Component> (node: T) -> Result<(), JsValue> {
+    BODY.with(|body| body.append(node))
 }
 
 #[inline]
