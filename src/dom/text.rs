@@ -10,12 +10,12 @@ pub type DisplayText<'a, T> = Text<DisplayFn<'a, T>>;
 extern "C" {
     #[derive(Debug, Clone)]
     #[wasm_bindgen(js_name = Text, extends = DomNode)]
-    type DomText;
+    pub(super) type DomText;
 
     #[wasm_bindgen(constructor, js_class = "Text")]
-    fn new (v: &str) -> DomText;
+    pub(super) fn new (v: &str) -> DomText;
     #[wasm_bindgen(structural, method, setter, js_class = "Text")]
-    fn set_data (this: &DomText, v: &str);
+    pub(super) fn set_data (this: &DomText, v: &str);
 }
 
 #[cfg(not(feature = "nightly"))]

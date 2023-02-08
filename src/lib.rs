@@ -15,6 +15,14 @@ macro_rules! flat_mod {
 
 #[wasm_bindgen::prelude::wasm_bindgen]
 extern "C" {
+    pub(crate) type WeakRef;
+
+    #[wasm_bindgen(constructor, catch)]
+    pub fn new(target: &wasm_bindgen::JsValue) -> Result<WeakRef, wasm_bindgen::JsValue>;
+
+    #[wasm_bindgen(structural, method, js_name = deref)]
+    fn _deref(this: &WeakRef) -> wasm_bindgen::JsValue;
+
     #[allow(unused_doc_comments)]
     #[doc(hidden)]
     #[wasm_bindgen(js_namespace = console)]
@@ -24,6 +32,15 @@ extern "C" {
     #[doc(hidden)]
     #[wasm_bindgen(js_namespace = console)]
     pub fn error(s: &wasm_bindgen::JsValue);
+}
+
+impl WeakRef {
+    #[inline]
+    pub fn deref (&self) -> Option<wasm_bindgen::JsValue> {
+        let inner = self._deref();
+        if inner.is_undefined() { return None }
+        return Some(inner)
+    }
 }
 
 pub(crate) extern crate self as spiderweb;

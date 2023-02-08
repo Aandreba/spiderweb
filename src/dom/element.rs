@@ -1,4 +1,4 @@
-use crate::state::StateCell;
+use crate::{state::StateCell, WeakRef};
 
 use super::{create_element, Component, DomNode, IntoComponent};
 use js_sys::Function;
@@ -18,18 +18,28 @@ use wasm_bindgen::{prelude::wasm_bindgen, JsCast, JsValue, UnwrapThrowExt};
 
 #[wasm_bindgen]
 extern "C" {
-    #[wasm_bindgen(js_name = Element, extends = DomNode)]
-    type DomElement;
-    type WeakRef;
+    #[wasm_bindgen(js_name = HtmlElement, extends = DomNode)]
+    pub(super) type DomHtmlElement;
+    #[wasm_bindgen(js_name = CSSStyleDeclaration)]
+    pub(super) type CssStyleDeclaration;
 
-    #[wasm_bindgen(constructor, catch)]
-    fn new(target: &JsValue) -> Result<WeakRef, JsValue>;
     #[wasm_bindgen(structural, method, js_name = getAttribute)]
-    fn get_attribute(this: &DomElement, name: &str) -> String;
+    fn get_attribute(this: &DomHtmlElement, name: &str) -> String;
+
     #[wasm_bindgen(structural, method, catch, js_name = setAttribute)]
-    fn set_attribute(this: &DomElement, name: &str, value: &str) -> Result<(), JsValue>;
-    #[wasm_bindgen(structural, method)]
-    fn deref(this: &WeakRef) -> JsValue;
+    fn set_attribute(this: &DomHtmlElement, name: &str, value: &str) -> Result<(), JsValue>;
+
+    #[wasm_bindgen(structural, method, getter)]
+    pub(super) fn style(this: &DomHtmlElement) -> CssStyleDeclaration;
+
+    #[wasm_bindgen(structural, method, js_name = getPropertyValue)]
+    pub(super) fn get_property(this: &CssStyleDeclaration, name: &str) -> String;
+    #[wasm_bindgen(structural, method, catch, js_name = setProperty)]
+    pub(super) fn set_property(
+        this: &CssStyleDeclaration,
+        name: &str,
+        value: &str,
+    ) -> Result<(), JsValue>;
 }
 
 pub type ChildHandleRef<'a, T> = ChildHandle<&'a Element<T>>;
@@ -43,10 +53,10 @@ pub struct ChildHandle<E> {
 
 pub struct Element<T: ?Sized> {
     pub(super) inner: DomNode,
-    current_id: Cell<NonZeroU64>,
+    pub(super) current_id: Cell<NonZeroU64>,
     // id's can only increase, thus list is always sorted. let's use binary search!
-    children: UnsafeCell<VecDeque<(NonZeroU64, Element<Pin<Box<dyn Any>>>)>>,
-    state: T,
+    pub(super) children: UnsafeCell<VecDeque<(NonZeroU64, Element<Pin<Box<dyn Any>>>)>>,
+    pub(super) state: T,
 }
 
 impl<T> Element<T> {
@@ -72,8 +82,13 @@ impl<T> Element<T> {
     }
 
     #[inline]
+    pub fn state(&self) -> &T {
+        return &self.state;
+    }
+
+    #[inline]
     pub fn set_attribute(&self, name: &str, value: &str) -> Result<(), JsValue> {
-        if let Some(inner) = self.inner.dyn_ref::<DomElement>() {
+        if let Some(inner) = self.inner.dyn_ref::<DomHtmlElement>() {
             return inner.set_attribute(name, value);
         } else {
             return Err(JsValue::from_str("This element's node isn't a DOM element"));
@@ -92,21 +107,18 @@ impl<T> Element<T> {
         F: 'a + FnMut(&U) -> S,
         S: Borrow<str>,
     {
-        if let Some(inner) = self.inner.dyn_ref::<DomElement>() {
+        if let Some(inner) = self.inner.dyn_ref::<DomHtmlElement>() {
             let inner = WeakRef::new(inner)?;
             state.register_weak(move |x| {
-                let inner = inner.deref();
-                if inner.is_undefined() {
-                    return false;
+                if let Some(inner) = inner.deref() {
+                    if let Err(e) = inner
+                        .unchecked_ref::<DomHtmlElement>()
+                        .set_attribute(name, f(x).borrow())
+                    {
+                        crate::macros::eprintln!(&e)
+                    }
                 }
-
-                if let Err(e) = inner
-                    .unchecked_ref::<DomElement>()
-                    .set_attribute(name, f(x).borrow())
-                {
-                    crate::macros::eprintln!(&e)
-                }
-                todo!()
+                return false;
             });
 
             todo!()
