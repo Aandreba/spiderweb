@@ -1,5 +1,5 @@
 use super::timeout2millis;
-use crate::channel::oneshoot::{channel, Receiver};
+use crate::channel::oneshot::{channel, Receiver};
 use futures::{Future, FutureExt};
 use std::{marker::PhantomData, mem::ManuallyDrop, pin::Pin, time::Duration};
 use wasm_bindgen::{

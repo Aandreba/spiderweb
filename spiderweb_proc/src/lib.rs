@@ -17,7 +17,7 @@ pub fn println(items: proc_macro::TokenStream) -> proc_macro::TokenStream {
     return match parse_macro_input!(items as Console) {
         Console::Format(x) => {
             quote! {
-                ::spiderweb::log(::spiderweb::wasm_bindgen::JsValue::from_str(&::std::format!(#x)))
+                ::spiderweb::log(&::spiderweb::wasm_bindgen::JsValue::from_str(&::std::format!(#x)))
             }
         },
         Console::Value(x) if x.len() == 1 => {
@@ -39,7 +39,7 @@ pub fn eprintln(items: proc_macro::TokenStream) -> proc_macro::TokenStream {
     return match parse_macro_input!(items as Console) {
         Console::Format(x) => {
             quote! {
-                ::spiderweb::error(::spiderweb::wasm_bindgen::JsValue::from_str(&::std::format!(#x)))
+                ::spiderweb::error(&::spiderweb::wasm_bindgen::JsValue::from_str(&::std::format!(#x)))
             }
         },
         Console::Value(x) if x.len() == 1 => {

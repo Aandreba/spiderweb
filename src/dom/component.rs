@@ -5,10 +5,12 @@ use wasm_bindgen::{prelude::wasm_bindgen, JsValue};
 #[wasm_bindgen]
 extern "C" {
     /// Raw DOM [Node](https://developer.mozilla.org/en-US/docs/Web/API/Node)
-    #[derive(Debug, Clone)]
-    #[wasm_bindgen(js_name = Node)]
+    #[wasm_bindgen(js_name = Node, typescript_type = "Node")]
+    #[derive(Debug, Clone, PartialEq)]
     pub type DomNode;
 
+    #[wasm_bindgen(structural, method, getter, js_name = parentNode)]
+    pub fn parent_node (this: &DomNode) -> Option<DomNode>;
     #[wasm_bindgen(structural, method, catch, js_name = appendChild)]
     pub fn append_child(this: &DomNode, node: &DomNode) -> Result<DomNode, JsValue>;
     #[wasm_bindgen(structural, method, catch, js_name = removeChild)]

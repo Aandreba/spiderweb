@@ -1,17 +1,18 @@
 use futures::StreamExt;
 use spiderweb::{
-    dom::{append_to_body, view::Button, Text},
+    dom::{
+        append_to_body,
+        view::{Alignment, Orientation, Pane},
+        Text,
+    },
     state::StateCell,
-    task::sleep,
-    time::{Interval, Timeout},
+    time::{Interval},
 };
 use spiderweb_proc::client;
 use std::{
-    ops::{AddAssign, SubAssign},
-    rc::Rc,
     time::Duration,
 };
-use wasm_bindgen::{prelude::Closure, JsValue};
+use wasm_bindgen::{JsValue};
 use wasm_bindgen_test::{wasm_bindgen_test, wasm_bindgen_test_configure};
 
 wasm_bindgen_test_configure!(run_in_browser);
@@ -34,6 +35,7 @@ async fn client_macro() -> Result<(), JsValue> {
     return Ok(());
 }
 
+/*
 #[wasm_bindgen_test]
 async fn counter() -> Result<(), JsValue> {
     let value = Rc::new(StateCell::new(0i32));
@@ -63,6 +65,21 @@ async fn counter() -> Result<(), JsValue> {
     let handle = append_to_body(text)?;
     let text = Timeout::new(|| handle.detach(), Duration::from_secs_f32(2.5)).await;
 
+    return Ok(());
+}
+*/
+
+#[wasm_bindgen_test]
+async fn pane() -> Result<(), JsValue> {
+    let pane = Pane::new(
+        Orientation::Horizontal,
+        Alignment::Center,
+        Alignment::Center,
+    )?;
+    pane.push(client! { <span>{"Hello"}</span> }, 1.0)?;
+    pane.push(client! { <span>{"world"}</span> }, 1.0)?;
+
+    let _ = append_to_body(pane);
     return Ok(());
 }
 

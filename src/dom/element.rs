@@ -18,8 +18,10 @@ use wasm_bindgen::{prelude::wasm_bindgen, JsCast, JsValue, UnwrapThrowExt};
 
 #[wasm_bindgen]
 extern "C" {
-    #[wasm_bindgen(js_name = HtmlElement, extends = DomNode)]
+    #[wasm_bindgen(js_name = HTMLElement, extends = DomNode)]
     pub(super) type DomHtmlElement;
+
+    #[derive(Debug, Clone, PartialEq)]
     #[wasm_bindgen(js_name = CSSStyleDeclaration)]
     pub(super) type CssStyleDeclaration;
 
@@ -95,7 +97,6 @@ impl<T> Element<T> {
         }
     }
 
-    #[inline]
     pub fn set_dyn_attribute<'a, F, S, U>(
         &self,
         name: &'a str,
@@ -243,6 +244,23 @@ impl Element<Pin<Box<dyn Any>>> {
     }
 
     #[inline]
+    pub fn downcast_unpin<T: Unpin + Any>(self) -> Result<Element<Box<T>>, Self> {
+        let state = unsafe { Pin::into_inner_unchecked(self.state) };
+        match state.downcast::<T>() {
+            Ok(state) => Ok(Element {
+                inner: self.inner,
+                current_id: self.current_id,
+                children: self.children,
+                state,
+            }),
+            Err(state) => Err(Self {
+                state: Box::into_pin(state),
+                ..self
+            }),
+        }
+    }
+    
+    #[inline]
     pub fn downcast_boxed<T: Any>(self) -> Result<Element<Pin<Box<T>>>, Self> {
         let state = unsafe { Pin::into_inner_unchecked(self.state) };
         match state.downcast::<T>() {
@@ -262,7 +280,6 @@ impl Element<Pin<Box<dyn Any>>> {
 
 impl<T: ?Sized, E: Deref<Target = Element<T>>> ChildHandle<E> {
     /// Detaches the child from it's parent, returning the child's state
-    #[inline]
     pub fn detach(self) -> Element<Pin<Box<dyn Any>>> {
         unsafe {
             let children = &mut *self.parent.children.get();

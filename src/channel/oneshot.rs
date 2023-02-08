@@ -68,6 +68,11 @@ impl<T> Sender<T> {
 
 impl<T> Receiver<T> {
     #[inline]
+    pub fn is_available (&self) -> bool {
+        unsafe { &*self.inner.value.as_ptr() }.is_some()
+    }
+
+    #[inline]
     pub fn poll_unchecked(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<T> {
         match self.inner.value.take() {
             Some(x) => std::task::Poll::Ready(x),

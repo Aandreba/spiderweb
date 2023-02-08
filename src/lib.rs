@@ -1,4 +1,4 @@
-#![cfg_attr(feature = "nightly", feature(fn_traits, unboxed_closures, tuple_trait, nonzero_ops, min_specialization))]
+#![cfg_attr(feature = "nightly", feature(fn_traits, unboxed_closures, tuple_trait, nonzero_ops, ptr_metadata, min_specialization))]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
 #[cfg(not(all(target_family = "wasm", not(target_feature = "atomics"))))]
@@ -49,6 +49,7 @@ pub extern crate wasm_bindgen;
 #[doc(hidden)]
 pub extern crate js_sys;
 
+pub extern crate spiderweb_proc as macros;
 /// `!Send` and `!Sync` channels designed to send information between JavaScript contexts
 pub mod channel;
 /// Document Object Model
@@ -59,7 +60,6 @@ pub mod state;
 pub mod task;
 /// Time-related functionality
 pub mod time;
-pub extern crate spiderweb_proc as macros;
 
 #[inline(always)]
 pub(crate) fn noop() {}
