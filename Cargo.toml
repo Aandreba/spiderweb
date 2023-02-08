@@ -17,6 +17,7 @@ wasm-bindgen-futures = "0.4.34"
 spiderweb_proc = { version = "0.1.0", path = "spiderweb_proc" }
 cfg-if = "1.0.0"
 vector_mapp = "0.2.2"
+thiserror = "1.0.38"
 
 [dev-dependencies]
 wasm-bindgen-test = "0.3.34"

@@ -1,6 +1,6 @@
 use std::{cell::{UnsafeCell}, borrow::Borrow, rc::{Rc, Weak}};
 use wasm_bindgen::{prelude::wasm_bindgen, JsValue};
-use crate::state::{Listener, State};
+use crate::state::{Listener, StateCell};
 use super::{DomNode, Component, Element, IntoComponent};
 
 pub type StaticText = Text<()>;
@@ -54,7 +54,7 @@ pub struct Text<F: ?Sized> {
 
 impl StaticText {
     #[inline]
-    pub fn new_static (s: &str) -> Self {
+    pub fn constant (s: &str) -> Self {
         return Self {
             inner: DomText::new(s),
             f: UnsafeCell::new(())
@@ -64,7 +64,7 @@ impl StaticText {
 
 impl<F> Text<F> {
     #[inline]
-    pub fn new<'a, T, S> (parent: &State<'a, T>, mut f: F) -> Rc<Self>
+    pub fn new<'a, T, S> (parent: &StateCell<'a, T>, mut f: F) -> Rc<Self>
     where
         T: ?Sized,
         S: Borrow<str>,
@@ -82,7 +82,7 @@ impl<F> Text<F> {
 
 impl<'a, T: 'a + ?Sized + ToString> Text<DisplayFn<'a, T>> {
     #[inline]
-    pub fn display (parent: &State<'a, T>) -> Rc<Self> where T: 'a {
+    pub fn display (parent: &StateCell<'a, T>) -> Rc<Self> where T: 'a {
         Self::new(
             parent,
             #[cfg(not(feature = "nightly"))]
@@ -99,7 +99,7 @@ impl IntoComponent for &str {
 
     #[inline]
     fn into_component (self) -> Self::Component {
-        StaticText::new_static(self)
+        StaticText::constant(self)
     }
 }
 
@@ -109,7 +109,7 @@ impl IntoComponent for String {
 
     #[inline]
     fn into_component (self) -> Self::Component {
-        StaticText::new_static(&self)
+        StaticText::constant(&self)
     }
 }
 
@@ -119,7 +119,7 @@ impl IntoComponent for Box<str> {
 
     #[inline]
     fn into_component (self) -> Self::Component {
-        StaticText::new_static(&self)
+        StaticText::constant(&self)
     }
 }
 
@@ -129,7 +129,7 @@ impl IntoComponent for Rc<str> {
 
     #[inline]
     fn into_component (self) -> Self::Component {
-        StaticText::new_static(&self)
+        StaticText::constant(&self)
     }
 }
 

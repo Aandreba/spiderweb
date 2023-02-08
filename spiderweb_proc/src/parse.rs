@@ -17,6 +17,12 @@ pub struct Element {
 #[derive(Parse)]
 pub struct Attribute {
     pub name: Ident,
+    #[peek(Token![=])]
+    pub value: Option<AttributeValue>
+}
+
+#[derive(Parse)]
+pub struct AttributeValue {
     pub eq_token: Token![=],
     #[brace]
     pub brace_token: syn::token::Brace,
@@ -157,8 +163,9 @@ fn client_primitive(Element { open, content, .. }: &Element, tokens: &mut TokenS
 fn client_component(Element { open, content, .. }: &Element, tokens: &mut TokenStream) {
     let path = &open.path;
     let attrs = open.attrs.iter().map(|Attribute { name, value, .. }| {
+        let value = value.as_ref().map(|AttributeValue { value, .. }| quote! { :#value });
         quote! {
-           #name: #value
+           #name #value
         }
     });
 

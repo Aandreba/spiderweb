@@ -1,9 +1,9 @@
 use futures::StreamExt;
 use spiderweb::{
-    dom::{append_to_body, std::Button, Text},
-    state::State,
+    dom::{append_to_body, view::Button, Text},
+    state::StateCell,
     task::sleep,
-    time::Interval,
+    time::{Interval, Timeout},
 };
 use spiderweb_proc::client;
 use std::{
@@ -11,14 +11,14 @@ use std::{
     rc::Rc,
     time::Duration,
 };
-use wasm_bindgen::JsValue;
+use wasm_bindgen::{prelude::Closure, JsValue};
 use wasm_bindgen_test::{wasm_bindgen_test, wasm_bindgen_test_configure};
 
 wasm_bindgen_test_configure!(run_in_browser);
 
 #[wasm_bindgen_test]
 async fn client_macro() -> Result<(), JsValue> {
-    let text = State::new(String::new());
+    let text = StateCell::new(String::new());
     let interval = Interval::new(|| text.update(|x| x.push('a')), Duration::from_millis(500));
 
     let text = client! {
@@ -36,7 +36,10 @@ async fn client_macro() -> Result<(), JsValue> {
 
 #[wasm_bindgen_test]
 async fn counter() -> Result<(), JsValue> {
-    let value = Rc::new(State::new(0i32));
+    let value = Rc::new(StateCell::new(0i32));
+
+    let my_value = value.clone();
+    let reset = Button::new("Reset", move || my_value.set(0));
 
     let my_value = value.clone();
     let inc = Button::new("+", move || my_value.update(|x| x.add_assign(1)));
@@ -53,12 +56,12 @@ async fn counter() -> Result<(), JsValue> {
             <br/>
             {inc}
             {dec}
+            {reset}
         </div>
     }?;
 
     let handle = append_to_body(text)?;
-    sleep(Duration::from_secs_f32(2.5)).await;
-    let state = handle.detach();
+    let text = Timeout::new(|| handle.detach(), Duration::from_secs_f32(2.5)).await;
 
     return Ok(());
 }
