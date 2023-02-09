@@ -2,11 +2,10 @@ use futures::StreamExt;
 use spiderweb::{
     dom::{
         append_to_body,
-        view::{Alignment, Orientation, Pane},
-        Text,
+        view::{Alignment, Pane, Span, PaneChildHandle},
     },
     state::StateCell,
-    time::{Interval},
+    time::{Interval, Timeout},
 };
 use spiderweb_proc::client;
 use std::{
@@ -25,7 +24,7 @@ async fn client_macro() -> Result<(), JsValue> {
     let text = client! {
         <span>
             <i>{"Hello, "}</i>
-            <b>{Text::display(&text)}</b>
+            <b>{Span::display(&text)}</b>
         </span>
     }?;
 
@@ -71,15 +70,27 @@ async fn counter() -> Result<(), JsValue> {
 
 #[wasm_bindgen_test]
 async fn pane() -> Result<(), JsValue> {
-    let pane = Pane::new(
-        Orientation::Horizontal,
-        Alignment::Center,
-        Alignment::Center,
-    )?;
-    pane.push(client! { <span>{"Hello"}</span> }, 1.0)?;
-    pane.push(client! { <span>{"world"}</span> }, 1.0)?;
+    let row1 = Pane::horizontal(Alignment::Center, Alignment::Center)?;
+    let row2 = Pane::horizontal(Alignment::Center, Alignment::Center)?;
+    let row3 = Pane::horizontal(Alignment::Center, Alignment::Center)?;
 
-    let _ = append_to_body(pane);
+    let mut handles = Vec::with_capacity(3);
+    for i in 1..=3 {
+        let j = i as f32;
+        handles.push(row1.push(Span::fmt(&i), j)?);
+        row2.push(Span::fmt(&(i + 3)), j)?;
+        row3.push(Span::fmt(&(i + 6)), j)?;
+    }
+
+    let body = Pane::vertical(Alignment::Center, Alignment::Center)?;
+    body.push(row1, 1.)?;
+    body.push(row2, 1.)?;
+    body.push(row3, 1.)?;
+
+    let _ = append_to_body(body);
+    Timeout::new(|| handles.into_iter().map(PaneChildHandle::detach).collect::<Vec<_>>(), Duration::from_secs(5)).await;
+
+    let button = 
     return Ok(());
 }
 

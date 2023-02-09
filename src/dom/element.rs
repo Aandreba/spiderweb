@@ -18,8 +18,9 @@ use wasm_bindgen::{prelude::wasm_bindgen, JsCast, JsValue, UnwrapThrowExt};
 
 #[wasm_bindgen]
 extern "C" {
+    #[derive(Debug, Clone, PartialEq)]
     #[wasm_bindgen(js_name = HTMLElement, extends = DomNode)]
-    pub(super) type DomHtmlElement;
+    pub type DomHtmlElement;
 
     #[derive(Debug, Clone, PartialEq)]
     #[wasm_bindgen(js_name = CSSStyleDeclaration)]
@@ -54,16 +55,16 @@ pub struct ChildHandle<E> {
 }
 
 pub struct Element<T: ?Sized> {
-    pub(super) inner: DomNode,
-    pub(super) current_id: Cell<NonZeroU64>,
+    inner: DomHtmlElement,
+    current_id: Cell<NonZeroU64>,
     // id's can only increase, thus list is always sorted. let's use binary search!
-    pub(super) children: UnsafeCell<VecDeque<(NonZeroU64, Element<Pin<Box<dyn Any>>>)>>,
-    pub(super) state: T,
+    children: UnsafeCell<VecDeque<(NonZeroU64, Element<Pin<Box<dyn Any>>>)>>,
+    state: T,
 }
 
 impl<T> Element<T> {
     #[inline]
-    pub(super) fn from_dom(inner: DomNode, state: T) -> Self {
+    pub(super) fn from_dom(inner: DomHtmlElement, state: T) -> Self {
         return Self {
             inner,
             current_id: unsafe { Cell::new(NonZeroU64::new_unchecked(1)) },
@@ -73,7 +74,7 @@ impl<T> Element<T> {
     }
 
     #[inline]
-    pub fn new(tag: &str, state: T) -> Self {
+    pub fn new (tag: &str, state: T) -> Self {
         let inner = create_element(tag);
         return Self {
             inner: inner.into(),
@@ -81,6 +82,11 @@ impl<T> Element<T> {
             children: Default::default(),
             state,
         };
+    }
+
+    #[inline]
+    pub unsafe fn inner (&self) -> &DomHtmlElement {
+        &self.inner
     }
 
     #[inline]

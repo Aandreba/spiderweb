@@ -1,4 +1,4 @@
-#![cfg_attr(feature = "nightly", feature(fn_traits, unboxed_closures, tuple_trait, nonzero_ops, ptr_metadata, min_specialization))]
+#![cfg_attr(feature = "nightly", feature(fn_traits, unboxed_closures, tuple_trait, trait_alias, nonzero_ops, ptr_metadata, min_specialization))]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
 #[cfg(not(all(target_family = "wasm", not(target_feature = "atomics"))))]
@@ -60,6 +60,7 @@ pub mod state;
 pub mod task;
 /// Time-related functionality
 pub mod time;
+pub mod flag;
 
 #[inline(always)]
 pub(crate) fn noop() {}

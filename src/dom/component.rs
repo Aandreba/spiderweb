@@ -1,5 +1,5 @@
 use super::Element;
-use std::{rc::Rc, any::Any};
+use std::{any::Any};
 use wasm_bindgen::{prelude::wasm_bindgen, JsValue};
 
 #[wasm_bindgen]
@@ -11,21 +11,29 @@ extern "C" {
 
     #[wasm_bindgen(structural, method, getter, js_name = parentNode)]
     pub fn parent_node (this: &DomNode) -> Option<DomNode>;
+    #[wasm_bindgen(structural, method, getter, js_name = firstChild)]
+    pub fn first_child (this: &DomNode) -> Option<DomNode>;
     #[wasm_bindgen(structural, method, catch, js_name = appendChild)]
     pub fn append_child(this: &DomNode, node: &DomNode) -> Result<DomNode, JsValue>;
     #[wasm_bindgen(structural, method, catch, js_name = removeChild)]
     pub fn remove_child(this: &DomNode, node: &DomNode) -> Result<DomNode, JsValue>;
 }
 
+cfg_if::cfg_if! {
+    if #[cfg(feature = "nightly")] {
+        /// Component without inherent state
+        pub trait StatelessComponent = Component<State = ()>; 
+    } else {
+        /// Component without inherent state
+        pub trait StatelessComponent: Component<State = ()> {}
+        impl<T: Component<State = ()>> StatelessComponent for T {}
+    }
+}
+
 /// A type that can be added to the DOM
 pub trait Component {
     type State: Any;
     fn render (self) -> Result<Element<Self::State>, JsValue>;
-}
-
-/// A type that can be added to the DOM
-pub trait ComponentRef: Component {
-    fn render(&self) -> Result<Element<Self::State>, JsValue>;
 }
 
 impl<T: Component> Component for Result<T, JsValue> {
@@ -37,37 +45,12 @@ impl<T: Component> Component for Result<T, JsValue> {
     }
 }
 
-impl<T: ?Sized + ComponentRef> Component for &T {
-    type State = T::State;
-
-    #[inline]
-    fn render(self) -> Result<Element<Self::State>, JsValue> {
-        ComponentRef::render(self)
-    }
-}
-
 impl<T: Component> Component for Box<T> {
     type State = T::State;
 
     #[inline]
     fn render(self) -> Result<Element<Self::State>, JsValue> {
         T::render(*self)
-    }
-}
-
-impl<T: ?Sized + ComponentRef> ComponentRef for Rc<T> {
-    #[inline]
-    fn render(&self) -> Result<Element<Self::State>, JsValue> {
-        <T as ComponentRef>::render(self)
-    }
-}
-
-impl<T: ?Sized + ComponentRef> Component for Rc<T> {
-    type State = T::State;
-
-    #[inline]
-    fn render(self) -> Result<Element<Self::State>, JsValue> {
-        <T as ComponentRef>::render(&self)
     }
 }
 
