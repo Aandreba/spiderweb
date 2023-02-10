@@ -1,10 +1,10 @@
 use super::{Text, TextAlignment};
 use crate::{
     dom::{Component, DomHtmlElement, Element, IntoComponent},
-    state::StateCell,
+    state::{ReadOnlyState},
     WeakRef,
 };
-use std::borrow::Borrow;
+use std::{borrow::Borrow, rc::Rc, any::Any};
 use wasm_bindgen::{JsCast, JsValue};
 
 pub struct Span {
@@ -29,7 +29,7 @@ impl Span {
 
 impl Span {
     #[inline]
-    pub fn dynamic<'a, T, F, S>(state: &StateCell<'a, T>, f: F) -> Result<Self, JsValue>
+    pub fn dynamic<'a, T, F, S>(state: &ReadOnlyState<'a, T>, f: F) -> Result<Self, JsValue>
     where
         T: ?Sized,
         F: 'a + FnMut(&T) -> S,
@@ -38,7 +38,7 @@ impl Span {
         Self::dynamic_aligned(state, f, TextAlignment::default())
     }
 
-    pub fn dynamic_aligned<'a, T, F, S>(state: &StateCell<'a, T>, mut f: F, align: impl Into<TextAlignment>) -> Result<Self, JsValue>
+    pub fn dynamic_aligned<'a, T, F, S>(state: &ReadOnlyState<'a, T>, mut f: F, align: impl Into<TextAlignment>) -> Result<Self, JsValue>
     where
         T: ?Sized,
         F: 'a + FnMut(&T) -> S,
@@ -81,12 +81,12 @@ impl Span {
 
 impl Span {
     #[inline]
-    pub fn display<'a, T: 'a + ?Sized + ToString> (state: &StateCell<'a, T>) -> Result<Self, JsValue> {
+    pub fn display<'a, T: 'a + ?Sized + ToString> (state: &ReadOnlyState<'a, T>) -> Result<Self, JsValue> {
         return Self::display_aligned(state, TextAlignment::default())
     }
 
     #[inline]
-    pub fn display_aligned<'a, T: 'a + ?Sized + ToString> (state: &StateCell<'a, T>, align: impl Into<TextAlignment>) -> Result<Self, JsValue> {
+    pub fn display_aligned<'a, T: 'a + ?Sized + ToString> (state: &ReadOnlyState<'a, T>, align: impl Into<TextAlignment>) -> Result<Self, JsValue> {
         return Self::dynamic_aligned(state, ToString::to_string, align)
     }
 }
@@ -100,6 +100,16 @@ impl Component for Span {
     }
 }
 
+impl<T: ?Sized + Any + ToString> IntoComponent for &ReadOnlyState<'_, T> {
+    type Component = Result<Span, JsValue>;
+    type State = ();
+
+    #[inline]
+    fn into_component (self) -> Self::Component {
+        Span::display(self)
+    }
+}
+
 impl IntoComponent for &str {
     type Component = Result<Span, JsValue>;
     type State = ();
@@ -107,5 +117,35 @@ impl IntoComponent for &str {
     #[inline]
     fn into_component (self) -> Self::Component {
         Span::constant(self)
+    }
+}
+
+impl IntoComponent for String {
+    type Component = Result<Span, JsValue>;
+    type State = ();
+
+    #[inline]
+    fn into_component (self) -> Self::Component {
+        Span::constant(&self)
+    }
+}
+
+impl IntoComponent for Box<str> {
+    type Component = Result<Span, JsValue>;
+    type State = ();
+
+    #[inline]
+    fn into_component (self) -> Self::Component {
+        Span::constant(&self)
+    }
+}
+
+impl IntoComponent for Rc<str> {
+    type Component = Result<Span, JsValue>;
+    type State = ();
+
+    #[inline]
+    fn into_component (self) -> Self::Component {
+        Span::constant(&self)
     }
 }

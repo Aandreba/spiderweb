@@ -3,7 +3,7 @@ use std::{
     cell::{Cell, UnsafeCell},
     ops::{Deref, DerefMut},
     rc::Rc,
-    task::{Poll, Waker}, collections::VecDeque,
+    task::{Poll, Waker},
 };
 
 pub type MutexLockFutureRef<'a, T> = MutexLockFuture<T, &'a Mutex<T>>;
@@ -30,7 +30,7 @@ enum WakerCell {
 pub struct Mutex<T: ?Sized> {
     locked: Cell<bool>,
     wakers: UnsafeCell<Vec<WakerCell>>,
-    empty_wakers: UnsafeCell<VecDeque<usize>>,
+    empty_wakers: UnsafeCell<Vec<usize>>, // todo? switch to vecdeque
     inner: UnsafeCell<T>,
 }
 
@@ -54,7 +54,7 @@ impl<T: ?Sized> Mutex<T> {
         return Self {
             locked: Cell::new(false),
             wakers: UnsafeCell::new(Vec::new()),
-            empty_wakers: UnsafeCell::new(VecDeque::new()),
+            empty_wakers: UnsafeCell::new(Vec::new()),
             inner: UnsafeCell::new(t),
         };
     }
@@ -65,7 +65,10 @@ impl<T: ?Sized> Mutex<T> {
     }
 
     #[inline]
-    pub fn into_inner (self) -> T where T: Sized {
+    pub fn into_inner(self) -> T
+    where
+        T: Sized,
+    {
         self.inner.into_inner()
     }
 
@@ -75,7 +78,7 @@ impl<T: ?Sized> Mutex<T> {
             false => {
                 this.locked.set(true);
                 Ok(MutexGuard(this))
-            },
+            }
             _ => Err(this),
         };
     }
@@ -84,13 +87,15 @@ impl<T: ?Sized> Mutex<T> {
     pub fn lock_by_deref<D: Unpin + Deref<Target = Self>>(this: D) -> MutexLockFuture<T, D> {
         unsafe {
             let wakers = &mut *this.wakers.get();
-            let key = match (&mut *this.empty_wakers.get()).pop_front() {
-                Some(i) => i,
-                None => {
+            let empty_wakers = &mut *this.empty_wakers.get();
+
+            let key = match empty_wakers.len() {
+                0 => {
                     let i = wakers.len();
                     wakers.push(WakerCell::Uninit);
                     i
                 }
+                _ => empty_wakers.swap_remove(0),
             };
 
             return MutexLockFuture {
@@ -103,24 +108,24 @@ impl<T: ?Sized> Mutex<T> {
 
 impl<T: ?Sized> Mutex<T> {
     #[inline]
-    pub fn try_lock (&self) -> Option<MutexGuardRef<'_, T>> {
+    pub fn try_lock(&self) -> Option<MutexGuardRef<'_, T>> {
         Self::try_lock_by_deref(self).ok()
     }
 
     #[inline]
-    pub fn lock (&self) -> MutexLockFutureRef<'_, T> {
+    pub fn lock(&self) -> MutexLockFutureRef<'_, T> {
         Self::lock_by_deref(self)
     }
 }
 
 impl<T: ?Sized> Mutex<T> {
     #[inline]
-    pub fn try_lock_shared (self: Rc<Self>) -> Result<MutexGuardShared<T>, Rc<Self>> {
+    pub fn try_lock_shared(self: Rc<Self>) -> Result<MutexGuardShared<T>, Rc<Self>> {
         Self::try_lock_by_deref(self)
     }
 
     #[inline]
-    pub fn lock_shared (self: Rc<Self>) -> MutexLockFutureShared<T> {
+    pub fn lock_shared(self: Rc<Self>) -> MutexLockFutureShared<T> {
         Self::lock_by_deref(self)
     }
 }
@@ -168,7 +173,9 @@ impl<T: ?Sized, M: Deref<Target = Mutex<T>>> Drop for MutexGuard<T, M> {
     fn drop(&mut self) {
         self.0.locked.set(false);
         for waker in unsafe { &mut *self.0.wakers.get() }.iter_mut() {
-            if waker.wake() { break }
+            if waker.wake() {
+                break;
+            }
         }
     }
 }
@@ -190,7 +197,9 @@ impl<T: ?Sized, M: Unpin + Deref<Target = Mutex<T>>> Future for MutexLockFuture<
                         return Poll::Ready(MutexGuard(self.inner.take().unwrap_unchecked()));
                     }
                     _ => {
-                        (&mut *inner.wakers.get()).get_unchecked_mut(self.key).register(cx.waker());
+                        (&mut *inner.wakers.get())
+                            .get_unchecked_mut(self.key)
+                            .register(cx.waker());
                         return Poll::Pending;
                     }
                 }
@@ -219,7 +228,7 @@ impl<T: ?Sized, M: Deref<Target = Mutex<T>>> Drop for MutexLockFuture<T, M> {
 }
 
 #[inline]
-unsafe fn uninit_waker<T: ?Sized, M: Deref<Target = Mutex<T>>> (inner: &M, key: usize) {
+unsafe fn uninit_waker<T: ?Sized, M: Deref<Target = Mutex<T>>>(inner: &M, key: usize) {
     *(&mut *inner.wakers.get()).get_unchecked_mut(key) = WakerCell::Uninit;
-    (&mut *inner.empty_wakers.get()).push_back(key);
-} 
+    (&mut *inner.empty_wakers.get()).push(key);
+}

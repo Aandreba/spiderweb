@@ -206,14 +206,14 @@ impl<T> Element<T> {
     }
 }
 
-impl<T, S: ?Sized, E: Deref<Target = Element<S>>> ChildHandle<T, E> {
+impl<T: Any, S: ?Sized, E: Deref<Target = Element<S>>> ChildHandle<T, E> {
     /// Returns a reference to the child's state
     #[inline]
     pub fn state (&self) -> &T {
         unsafe {
             return match (&*self.parent.children.get()).get(&self.id) {
                 Some(x) => &*(x.state() as *const dyn Any as *const T),
-                None => unsafe { unreachable_unchecked() }
+                None => unreachable_unchecked()
             }
         }
     }
@@ -254,7 +254,7 @@ impl<T, S: ?Sized, E: Deref<Target = Element<S>>> Deref for ChildHandle<T, E> {
         unsafe {
             match (&*self.parent.children.get()).get(&self.id) {
                 Some(x) => x,
-                None => unsafe { unreachable_unchecked() }
+                None => unreachable_unchecked()
             }
         }
     }

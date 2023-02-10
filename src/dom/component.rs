@@ -33,6 +33,7 @@ cfg_if::cfg_if! {
 /// A type that can be added to the DOM
 pub trait Component {
     type State: Any;
+
     fn render (self) -> Result<Element<Self::State>, JsValue>;
 }
 

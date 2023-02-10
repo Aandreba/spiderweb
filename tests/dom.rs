@@ -9,7 +9,7 @@ use spiderweb::{
 };
 use spiderweb_proc::client;
 use std::{
-    time::Duration, rc::Rc,
+    time::Duration,
 };
 use wasm_bindgen::{JsValue};
 use wasm_bindgen_test::{wasm_bindgen_test, wasm_bindgen_test_configure};
@@ -82,11 +82,11 @@ async fn pane() -> Result<(), JsValue> {
     let mut handles = Vec::with_capacity(3);
     for i in 1..=3 {
         let j = i as f32;
+        let s = row1.state();
         handles.push(row1.push_weighted(Span::fmt(&i), j)?);
         row2.push_weighted(Span::fmt(&(i + 3)), j)?;
         row3.push_weighted(Span::fmt(&(i + 6)), j)?;
     }
-
 
     let _ = append_to_body(body);
     Timeout::new(|| handles.into_iter().map(PaneChildHandle::detach).collect::<Vec<_>>(), Duration::from_secs(5)).await;

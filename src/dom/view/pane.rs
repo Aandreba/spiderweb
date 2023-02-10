@@ -147,7 +147,7 @@ impl Pane {
     }
 }
 
-impl<T, P: Deref<Target = Pane>> PaneChildHandle<T, P> {
+impl<T: Any, P: Deref<Target = Pane>> PaneChildHandle<T, P> {
     /// Returns a reference to the child's state
     #[inline]
     pub fn state (&self) -> &T {
