@@ -34,7 +34,6 @@ pub fn sleep(dur: Duration) -> Sleep {
 type TimeoutSet = Box<dyn 'static + Send + Sync + FnMut(u128) -> Timeout<'static, ()>>;
 
 #[cfg(feature = "nightly")]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 struct TimeoutSet;
 
 #[cfg(feature = "nightly")]

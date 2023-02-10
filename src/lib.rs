@@ -50,8 +50,7 @@ pub extern crate wasm_bindgen;
 pub extern crate js_sys;
 
 pub extern crate spiderweb_proc as macros;
-/// `!Send` and `!Sync` channels designed to send information between JavaScript contexts
-pub mod channel;
+pub mod sync;
 /// Document Object Model
 pub mod dom;
 /// Cells designed to modify and propagate state.

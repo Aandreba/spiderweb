@@ -9,7 +9,7 @@ use spiderweb::{
 };
 use spiderweb_proc::client;
 use std::{
-    time::Duration,
+    time::Duration, rc::Rc,
 };
 use wasm_bindgen::{JsValue};
 use wasm_bindgen_test::{wasm_bindgen_test, wasm_bindgen_test_configure};
@@ -90,7 +90,6 @@ async fn pane() -> Result<(), JsValue> {
     let _ = append_to_body(body);
     Timeout::new(|| handles.into_iter().map(PaneChildHandle::detach).collect::<Vec<_>>(), Duration::from_secs(5)).await;
 
-    let button = 
     return Ok(());
 }
 
