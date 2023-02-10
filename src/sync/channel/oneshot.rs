@@ -1,4 +1,4 @@
-use futures::Future;
+use futures::{Future, future::FusedFuture};
 use std::{
     cell::Cell,
     mem::ManuallyDrop,
@@ -99,6 +99,19 @@ impl<T> Future for Receiver<T> {
                 self.inner.waker.set(Some(cx.waker().clone()));
                 std::task::Poll::Pending
             }
+        }
+    }
+}
+
+impl<T> FusedFuture for Receiver<T> {
+    #[inline]
+    fn is_terminated(&self) -> bool {
+        return match self.inner.value.take() {
+            None if Rc::weak_count(&self.inner) == 0 => true,
+            x @ _ =>{
+                self.inner.value.set(x);
+                false
+            },
         }
     }
 }

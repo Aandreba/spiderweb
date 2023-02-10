@@ -2,16 +2,15 @@ use crate::{state::StateCell, WeakRef};
 
 use super::{create_element, Component, DomNode, IntoComponent};
 use js_sys::Function;
+use vector_mapp::binary::BinaryMap;
 use std::{
     any::Any,
     borrow::{Borrow, Cow},
     cell::{Cell, UnsafeCell},
-    collections::VecDeque,
     hint::unreachable_unchecked,
     marker::PhantomData,
     num::NonZeroU64,
     ops::Deref,
-    pin::Pin,
     rc::Rc,
 };
 use wasm_bindgen::{prelude::wasm_bindgen, JsCast, JsValue, UnwrapThrowExt};
@@ -45,21 +44,22 @@ extern "C" {
     ) -> Result<(), JsValue>;
 }
 
-pub type ChildHandleRef<'a, T> = ChildHandle<&'a Element<T>>;
-pub type ChildHandleShared<T> = ChildHandle<Rc<Element<T>>>;
+pub type ChildHandleRef<'a, T, S> = ChildHandle<T, &'a Element<S>>;
+pub type ChildHandleShared<T, S> = ChildHandle<T, Rc<Element<S>>>;
 
-pub struct ChildHandle<E> {
+pub struct ChildHandle<T, E> {
     id: NonZeroU64,
     parent: E,
-    _phtm: PhantomData<*mut ()>,
+    _phtm: PhantomData<T>,
+    _nothread: PhantomData<*mut ()>,
 }
 
 pub struct Element<T: ?Sized> {
-    inner: DomHtmlElement,
-    current_id: Cell<NonZeroU64>,
+    pub(super) inner: DomHtmlElement,
+    pub(super) current_id: Cell<NonZeroU64>,
     // id's can only increase, thus list is always sorted. let's use binary search!
-    children: UnsafeCell<VecDeque<(NonZeroU64, Element<Pin<Box<dyn Any>>>)>>,
-    state: T,
+    pub(super)  children: UnsafeCell<BinaryMap<NonZeroU64, Element<Box<dyn Any>>>>,
+    pub(super)  state: T,
 }
 
 impl<T> Element<T> {
@@ -122,7 +122,7 @@ impl<T> Element<T> {
                         .unchecked_ref::<DomHtmlElement>()
                         .set_attribute(name, f(x).borrow())
                     {
-                        crate::macros::eprintln!(&e)
+                        crate::eprintln!(&e)
                     }
                 }
                 return false;
@@ -149,7 +149,7 @@ impl<T> Element<T> {
     pub fn append_child<C: IntoComponent>(
         &self,
         child: C,
-    ) -> Result<ChildHandleRef<'_, T>, JsValue> {
+    ) -> Result<ChildHandleRef<'_, C::State, T>, JsValue> {
         Self::append_child_by_deref(self, child)
     }
 
@@ -157,14 +157,14 @@ impl<T> Element<T> {
     pub fn append_child_shared<C: IntoComponent>(
         self: Rc<Self>,
         child: C,
-    ) -> Result<ChildHandleShared<T>, JsValue> {
+    ) -> Result<ChildHandleShared<C::State, T>, JsValue> {
         Self::append_child_by_deref(self, child)
     }
 
     pub fn append_child_by_deref<D: Deref<Target = Self>, C: IntoComponent>(
         this: D,
         child: C,
-    ) -> Result<ChildHandle<D>, JsValue> {
+    ) -> Result<ChildHandle<C::State, D>, JsValue> {
         let child = child.into_component().render()?;
         this.inner.append_child(&child.inner)?;
 
@@ -178,20 +178,23 @@ impl<T> Element<T> {
         };
 
         // todo optimize in nightly
-        unsafe { &mut *this.children.get() }.push_back((
-            id,
-            Element {
-                inner: child.inner,
-                current_id: child.current_id,
-                children: child.children,
-                state: Box::pin(child.state),
-            },
-        ));
+        unsafe {
+            (&mut *this.children.get()).insert_back_unchecked(
+                id,
+                Element {
+                    inner: child.inner,
+                    current_id: child.current_id,
+                    children: child.children,
+                    state: Box::new(child.state),
+                },
+            );
+        }
 
         return Ok(ChildHandle {
             id,
             parent: this,
             _phtm: PhantomData,
+            _nothread: PhantomData
         });
     }
 
@@ -203,104 +206,56 @@ impl<T> Element<T> {
     }
 }
 
-impl Element<Box<dyn Any>> {
+impl<T, S: ?Sized, E: Deref<Target = Element<S>>> ChildHandle<T, E> {
+    /// Returns a reference to the child's state
     #[inline]
-    pub fn downcast<T: Any>(self) -> Result<Element<T>, Self> {
-        match self.state.downcast::<T>() {
-            Ok(state) => Ok(Element {
-                inner: self.inner,
-                current_id: self.current_id,
-                children: self.children,
-                state: *state,
-            }),
-            Err(state) => Err(Self { state, ..self }),
+    pub fn state (&self) -> &T {
+        unsafe {
+            return match (&*self.parent.children.get()).get(&self.id) {
+                Some(x) => &*(x.state() as *const dyn Any as *const T),
+                None => unsafe { unreachable_unchecked() }
+            }
         }
     }
 
-    #[inline]
-    pub fn downcast_boxed<T: Any>(self) -> Result<Element<Box<T>>, Self> {
-        match self.state.downcast::<T>() {
-            Ok(state) => Ok(Element {
-                inner: self.inner,
-                current_id: self.current_id,
-                children: self.children,
-                state,
-            }),
-            Err(state) => Err(Self { state, ..self }),
-        }
-    }
-}
-
-impl Element<Pin<Box<dyn Any>>> {
-    #[inline]
-    pub fn downcast<T: Unpin + Any>(self) -> Result<Element<T>, Self> {
-        let state = unsafe { Pin::into_inner_unchecked(self.state) };
-        match state.downcast::<T>() {
-            Ok(state) => Ok(Element {
-                inner: self.inner,
-                current_id: self.current_id,
-                children: self.children,
-                state: *state,
-            }),
-            Err(state) => Err(Self {
-                state: Box::into_pin(state),
-                ..self
-            }),
-        }
-    }
-
-    #[inline]
-    pub fn downcast_unpin<T: Unpin + Any>(self) -> Result<Element<Box<T>>, Self> {
-        let state = unsafe { Pin::into_inner_unchecked(self.state) };
-        match state.downcast::<T>() {
-            Ok(state) => Ok(Element {
-                inner: self.inner,
-                current_id: self.current_id,
-                children: self.children,
-                state,
-            }),
-            Err(state) => Err(Self {
-                state: Box::into_pin(state),
-                ..self
-            }),
-        }
-    }
-    
-    #[inline]
-    pub fn downcast_boxed<T: Any>(self) -> Result<Element<Pin<Box<T>>>, Self> {
-        let state = unsafe { Pin::into_inner_unchecked(self.state) };
-        match state.downcast::<T>() {
-            Ok(state) => Ok(Element {
-                inner: self.inner,
-                current_id: self.current_id,
-                children: self.children,
-                state: Box::into_pin(state),
-            }),
-            Err(state) => Err(Self {
-                state: Box::into_pin(state),
-                ..self
-            }),
-        }
-    }
-}
-
-impl<T: ?Sized, E: Deref<Target = Element<T>>> ChildHandle<E> {
     /// Detaches the child from it's parent, returning the child's state
-    pub fn detach(self) -> Element<Pin<Box<dyn Any>>> {
+    pub fn detach(self) -> Element<T> {
         unsafe {
             let children = &mut *self.parent.children.get();
-            match children.binary_search_by(|(x, _)| x.cmp(&self.id)) {
-                Ok(x) => {
-                    let element = children.remove(x).unwrap_unchecked().1;
+            match children.remove(&self.id) {
+                Some(element) => {
                     let _ = self
                         .parent
                         .inner
                         .remove_child(&element.inner)
                         .unwrap_throw();
-                    return element;
+
+                    return Element {
+                        inner: element.inner,
+                        current_id: element.current_id,
+                        children: element.children,
+                        #[cfg(feature = "nightly")]
+                        state: *element.state.downcast_unchecked::<T>(),
+                        #[cfg(not(feature = "nightly"))]
+                        state: *element.state.downcast::<T>().unwrap_unchecked(),
+                    };
                 }
-                Err(_) => unreachable_unchecked(),
+                None => unreachable_unchecked(),
             };
+        }
+    }
+}
+
+impl<T, S: ?Sized, E: Deref<Target = Element<S>>> Deref for ChildHandle<T, E> {
+    type Target = Element<Box<dyn Any>>;
+
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        unsafe {
+            match (&*self.parent.children.get()).get(&self.id) {
+                Some(x) => x,
+                None => unsafe { unreachable_unchecked() }
+            }
         }
     }
 }

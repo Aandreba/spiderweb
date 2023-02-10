@@ -1,28 +1,26 @@
 use crate::{
     dom::{ChildHandle, Component, DomHtmlElement, Element, IntoComponent},
     flag::{flag, Sender},
-    state::StateCell,
+    state::{StateCell, ReadOnlyState},
 };
 use std::{
-    any::Any,
     ops::{AddAssign, Deref, SubAssign},
     pin::Pin,
     ptr::NonNull,
-    rc::Rc,
+    rc::Rc, any::Any,
 };
 use wasm_bindgen::{JsCast, JsValue};
-
 use super::{Orientation, Alignment};
 
-pub type PaneChildHandleRef<'a> = PaneChildHandle<&'a Pane>;
-pub type PaneChildHandleShared = PaneChildHandle<Rc<Pane>>;
+pub type PaneChildHandleRef<'a, T> = PaneChildHandle<T, &'a Pane>;
+pub type PaneChildHandleShared<T> = PaneChildHandle<T, Rc<Pane>>;
 
 #[derive(Debug, Clone, Copy)]
 #[repr(transparent)]
 struct ParentPtr(NonNull<Element<StateCell<'static, f32>>>);
 
-pub struct PaneChildHandle<P> {
-    child: ChildHandle<ParentPtr>,
+pub struct PaneChildHandle<T, P> {
+    child: ChildHandle<T, ParentPtr>,
     parent: Pin<P>,
     size: f32,
     send: Sender,
@@ -65,8 +63,16 @@ impl Pane {
     pub fn push<T: IntoComponent>(
         &self,
         child: T,
+    ) -> Result<PaneChildHandleRef<'_, T::State>, JsValue> {
+        self.push_weighted(child, 1.)
+    }
+
+    #[inline]
+    pub fn push_weighted<T: IntoComponent>(
+        &self,
+        child: T,
         size: f32,
-    ) -> Result<PaneChildHandleRef<'_>, JsValue> {
+    ) -> Result<PaneChildHandleRef<'_, T::State>, JsValue> {
         Self::push_by_deref(self, child, size)
     }
 
@@ -74,8 +80,16 @@ impl Pane {
     pub fn push_shared<T: IntoComponent>(
         self: Rc<Self>,
         child: T,
+    ) -> Result<PaneChildHandleShared<T::State>, JsValue> {
+        self.push_weighted_shared(child, 1.)
+    }
+
+    #[inline]
+    pub fn push_weighted_shared<T: IntoComponent>(
+        self: Rc<Self>,
+        child: T,
         size: f32,
-    ) -> Result<PaneChildHandleShared, JsValue> {
+    ) -> Result<PaneChildHandleShared<T::State>, JsValue> {
         Self::push_by_deref(self, child, size)
     }
 
@@ -83,7 +97,7 @@ impl Pane {
         this: D,
         child: T,
         size: f32,
-    ) -> Result<PaneChildHandle<D>, JsValue> {
+    ) -> Result<PaneChildHandle<T::State, D>, JsValue> {
         let child = child.into_component().render()?;
         let (send, recv) = flag();
 
@@ -97,7 +111,8 @@ impl Pane {
                     }
                     if let Err(e) = style.set_property("width", &format!("{}%", 100. * size / sum))
                     {
-                        crate::macros::eprintln!(&e)
+                        #[cfg(debug_assertions)]
+                        crate::eprintln!(&e)
                     }
                     return true;
                 });
@@ -111,7 +126,8 @@ impl Pane {
                     }
                     if let Err(e) = style.set_property("height", &format!("{}%", 100. * size / sum))
                     {
-                        crate::macros::eprintln!(&e)
+                        #[cfg(debug_assertions)]
+                        crate::eprintln!(&e)
                     }
                     return true;
                 });
@@ -131,10 +147,16 @@ impl Pane {
     }
 }
 
-impl<P: Deref<Target = Pane>> PaneChildHandle<P> {
+impl<T, P: Deref<Target = Pane>> PaneChildHandle<T, P> {
+    /// Returns a reference to the child's state
+    #[inline]
+    pub fn state (&self) -> &T {
+        self.child.state()
+    }
+
     /// Detaches the child from it's parent
     #[inline]
-    pub fn detach(self) -> Element<Pin<Box<dyn Any>>> {
+    pub fn detach(self) -> Element<T> {
         let inner = self.child.detach();
         self.send.send();
         self.parent
@@ -145,12 +167,26 @@ impl<P: Deref<Target = Pane>> PaneChildHandle<P> {
     }
 }
 
+impl<T, P: Deref<Target = Pane>> Deref for PaneChildHandle<T, P> {
+    type Target = Element<Box<dyn Any>>;
+
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        self.child.deref()
+    }
+}
+
 impl Component for Pane {
-    type State = StateCell<'static, f32>;
+    type State = ReadOnlyState<'static, f32>;
 
     #[inline]
     fn render(self) -> Result<crate::dom::Element<Self::State>, wasm_bindgen::JsValue> {
-        Ok(self.inner)
+        Ok(Element {
+            inner: self.inner.inner,
+            current_id: self.inner.current_id,
+            children: self.inner.children,
+            state: self.inner.state.into(),
+        })
     }
 }
 

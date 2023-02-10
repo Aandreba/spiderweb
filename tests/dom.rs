@@ -74,18 +74,19 @@ async fn pane() -> Result<(), JsValue> {
     let row2 = Pane::horizontal(Alignment::Center, Alignment::Center)?;
     let row3 = Pane::horizontal(Alignment::Center, Alignment::Center)?;
 
+    let body = Pane::vertical(Alignment::Center, Alignment::Center)?;
+    let row1 = body.push(row1)?;
+    body.push(row2)?;
+    body.push(row3)?;
+
     let mut handles = Vec::with_capacity(3);
     for i in 1..=3 {
         let j = i as f32;
-        handles.push(row1.push(Span::fmt(&i), j)?);
-        row2.push(Span::fmt(&(i + 3)), j)?;
-        row3.push(Span::fmt(&(i + 6)), j)?;
+        handles.push(row1.push_weighted(Span::fmt(&i), j)?);
+        row2.push_weighted(Span::fmt(&(i + 3)), j)?;
+        row3.push_weighted(Span::fmt(&(i + 6)), j)?;
     }
 
-    let body = Pane::vertical(Alignment::Center, Alignment::Center)?;
-    body.push(row1, 1.)?;
-    body.push(row2, 1.)?;
-    body.push(row3, 1.)?;
 
     let _ = append_to_body(body);
     Timeout::new(|| handles.into_iter().map(PaneChildHandle::detach).collect::<Vec<_>>(), Duration::from_secs(5)).await;

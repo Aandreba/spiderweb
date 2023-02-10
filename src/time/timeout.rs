@@ -1,6 +1,7 @@
+use crate::sync::channel::oneshot::{Receiver, channel};
+
 use super::timeout2millis;
-use crate::channel::oneshot::{channel, Receiver};
-use futures::{Future, FutureExt};
+use futures::{Future, FutureExt, future::FusedFuture};
 use std::{marker::PhantomData, mem::ManuallyDrop, pin::Pin, time::Duration};
 use wasm_bindgen::{
     prelude::{wasm_bindgen, Closure},
@@ -137,6 +138,13 @@ impl<'a, T> Future for Timeout<'a, T> {
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Self::Output> {
         Pin::new(&mut self.recv).poll_unchecked(cx)
+    }
+}
+
+impl<'a, T> FusedFuture for Timeout<'a, T> {
+    #[inline]
+    fn is_terminated(&self) -> bool {
+        self.recv.is_terminated()
     }
 }
 

@@ -1,7 +1,8 @@
 use std::{marker::PhantomData, time::Duration, mem::ManuallyDrop};
 use futures::{Stream, StreamExt};
 use wasm_bindgen::{prelude::{wasm_bindgen, Closure}, JsValue};
-use crate::channel::mpsc::{Receiver, channel};
+use crate::sync::channel::mpsc::{Receiver, channel};
+
 use super::timeout2millis;
 
 #[wasm_bindgen]

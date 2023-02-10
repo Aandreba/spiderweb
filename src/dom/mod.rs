@@ -36,7 +36,7 @@ thread_local! {
 }
 
 #[inline]
-pub fn append_to_body<T: IntoComponent>(node: T) -> Result<ChildHandleRef<'static, ()>, JsValue> {
+pub fn append_to_body<T: IntoComponent>(node: T) -> Result<ChildHandleRef<'static, T::State, ()>, JsValue> {
     body().append_child(node)
 }
 

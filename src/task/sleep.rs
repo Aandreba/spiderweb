@@ -14,6 +14,7 @@ use std::{task::Poll, time::Duration};
 /// [`Interval`]: crate::time::Interval
 /// [`Timeout`]: crate::time::Timeout
 /// [`MAX_DURATION`]: crate::time::MAX_DURATION
+#[must_use = "futures do nothing unless you `.await` or poll them"]
 #[inline]
 pub fn sleep(dur: Duration) -> Sleep {
     const LIMIT: u128 = i32::MAX as u128;

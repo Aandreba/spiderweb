@@ -23,7 +23,7 @@ flat_mod! { sleep }
 /// ```
 /// use safeweb::task;
 ///
-/// task::yield_now();
+/// task::yield_now().await;
 /// ```
 ///
 /// [`channel`]: crate::channel

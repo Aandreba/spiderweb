@@ -1,4 +1,4 @@
-#![cfg_attr(feature = "nightly", feature(fn_traits, unboxed_closures, tuple_trait, trait_alias, nonzero_ops, ptr_metadata, min_specialization))]
+#![cfg_attr(feature = "nightly", feature(fn_traits, unboxed_closures, tuple_trait, trait_alias, downcast_unchecked, nonzero_ops, ptr_metadata, min_specialization))]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
 #[cfg(not(all(target_family = "wasm", not(target_feature = "atomics"))))]
@@ -10,6 +10,31 @@ macro_rules! flat_mod {
             mod $i;
             pub use $i::*;
         )+
+    };
+}
+
+#[macro_export]
+macro_rules! dbg {
+    // NOTE: We cannot use `concat!` to make a static string as a format argument
+    // of `eprintln!` because `file!` could contain a `{` or
+    // `$val` expression could be a block (`{ .. }`), in which case the `eprintln!`
+    // will be malformed.
+    () => {
+        $crate::eprintln!("[{}:{}]", $crate::file!(), $crate::line!())
+    };
+    ($val:expr $(,)?) => {
+        // Use of `match` here is intentional because it affects the lifetimes
+        // of temporaries - https://stackoverflow.com/a/48732525/1063961
+        match $val {
+            tmp => {
+                $crate::eprintln!("[{}:{}] {} = {:#?}",
+                    ::std::file!(), ::std::line!(), ::std::stringify!($val), &tmp);
+                tmp
+            }
+        }
+    };
+    ($($val:expr),+ $(,)?) => {
+        ($($crate::dbg!($val)),+,)
     };
 }
 
@@ -49,7 +74,6 @@ pub extern crate wasm_bindgen;
 #[doc(hidden)]
 pub extern crate js_sys;
 
-pub extern crate spiderweb_proc as macros;
 pub mod sync;
 /// Document Object Model
 pub mod dom;
@@ -60,6 +84,8 @@ pub mod task;
 /// Time-related functionality
 pub mod time;
 pub mod flag;
+
+pub use spiderweb_proc::*;
 
 #[inline(always)]
 pub(crate) fn noop() {}

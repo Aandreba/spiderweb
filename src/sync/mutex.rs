@@ -6,8 +6,8 @@ use std::{
     task::{Poll, Waker}, collections::VecDeque,
 };
 
-pub type MutexLockRef<'a, T> = MutexLock<T, &'a Mutex<T>>;
-pub type MutexLockShared<T> = MutexLock<T, Rc<Mutex<T>>>;
+pub type MutexLockFutureRef<'a, T> = MutexLockFuture<T, &'a Mutex<T>>;
+pub type MutexLockFutureShared<T> = MutexLockFuture<T, Rc<Mutex<T>>>;
 
 pub type MutexGuardRef<'a, T> = MutexGuard<T, &'a Mutex<T>>;
 pub type MutexGuardShared<T> = MutexGuard<T, Rc<Mutex<T>>>;
@@ -36,7 +36,7 @@ pub struct Mutex<T: ?Sized> {
 
 /// Future for [`lock_by_deref`](Mutex::lock_by_deref)
 #[derive(Debug)]
-pub struct MutexLock<T: ?Sized, M: Deref<Target = Mutex<T>>> {
+pub struct MutexLockFuture<T: ?Sized, M: Deref<Target = Mutex<T>>> {
     inner: Option<M>,
     key: usize,
 }
@@ -65,17 +65,25 @@ impl<T: ?Sized> Mutex<T> {
     }
 
     #[inline]
+    pub fn into_inner (self) -> T where T: Sized {
+        self.inner.into_inner()
+    }
+
+    #[inline]
     pub fn try_lock_by_deref<D: Deref<Target = Self>>(this: D) -> Result<MutexGuard<T, D>, D> {
         return match this.locked.get() {
-            false => Ok(MutexGuard(this)),
+            false => {
+                this.locked.set(true);
+                Ok(MutexGuard(this))
+            },
             _ => Err(this),
         };
     }
 
     #[inline]
-    pub fn lock_by_deref<D: Deref<Target = Self>>(this: D) -> MutexLock<T, D> {
+    pub fn lock_by_deref<D: Unpin + Deref<Target = Self>>(this: D) -> MutexLockFuture<T, D> {
         unsafe {
-            let wakers = unsafe { &mut *this.wakers.get() };
+            let wakers = &mut *this.wakers.get();
             let key = match (&mut *this.empty_wakers.get()).pop_front() {
                 Some(i) => i,
                 None => {
@@ -85,11 +93,35 @@ impl<T: ?Sized> Mutex<T> {
                 }
             };
 
-            return MutexLock {
+            return MutexLockFuture {
                 inner: Some(this),
                 key,
             };
         }
+    }
+}
+
+impl<T: ?Sized> Mutex<T> {
+    #[inline]
+    pub fn try_lock (&self) -> Option<MutexGuardRef<'_, T>> {
+        Self::try_lock_by_deref(self).ok()
+    }
+
+    #[inline]
+    pub fn lock (&self) -> MutexLockFutureRef<'_, T> {
+        Self::lock_by_deref(self)
+    }
+}
+
+impl<T: ?Sized> Mutex<T> {
+    #[inline]
+    pub fn try_lock_shared (self: Rc<Self>) -> Result<MutexGuardShared<T>, Rc<Self>> {
+        Self::try_lock_by_deref(self)
+    }
+
+    #[inline]
+    pub fn lock_shared (self: Rc<Self>) -> MutexLockFutureShared<T> {
+        Self::lock_by_deref(self)
     }
 }
 
@@ -135,18 +167,18 @@ impl<T: ?Sized, M: Deref<Target = Mutex<T>>> Drop for MutexGuard<T, M> {
     #[inline]
     fn drop(&mut self) {
         self.0.locked.set(false);
-        for (i, waker) in unsafe { &mut *self.0.wakers.get() }.iter_mut().enumerate() {
+        for waker in unsafe { &mut *self.0.wakers.get() }.iter_mut() {
             if waker.wake() { break }
         }
     }
 }
 
-impl<T: ?Sized, M: Deref<Target = Mutex<T>>> Future for MutexLock<T, M> {
+impl<T: ?Sized, M: Unpin + Deref<Target = Mutex<T>>> Future for MutexLockFuture<T, M> {
     type Output = MutexGuard<T, M>;
 
     #[inline]
     fn poll(
-        self: std::pin::Pin<&mut Self>,
+        mut self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Self::Output> {
         if let Some(ref inner) = self.inner {
@@ -158,26 +190,26 @@ impl<T: ?Sized, M: Deref<Target = Mutex<T>>> Future for MutexLock<T, M> {
                         return Poll::Ready(MutexGuard(self.inner.take().unwrap_unchecked()));
                     }
                     _ => {
-                        (&mut *inner.wakers.get()).get_unchecked_mut(self.key);
+                        (&mut *inner.wakers.get()).get_unchecked_mut(self.key).register(cx.waker());
                         return Poll::Pending;
                     }
                 }
             }
         }
 
-        crate::macros::eprintln!("This future has already completed");
+        crate::eprintln!("This future has already completed");
         return Poll::Pending;
     }
 }
 
-impl<T: ?Sized, M: Deref<Target = Mutex<T>>> FusedFuture for MutexLock<T, M> {
+impl<T: ?Sized, M: Unpin + Deref<Target = Mutex<T>>> FusedFuture for MutexLockFuture<T, M> {
     #[inline]
     fn is_terminated(&self) -> bool {
         self.inner.is_none()
     }
 }
 
-impl<T: ?Sized, M: Deref<Target = Mutex<T>>> Drop for MutexLock<T, M> {
+impl<T: ?Sized, M: Deref<Target = Mutex<T>>> Drop for MutexLockFuture<T, M> {
     #[inline]
     fn drop(&mut self) {
         if let Some(ref inner) = self.inner {
