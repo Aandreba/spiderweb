@@ -1,7 +1,7 @@
 use super::{Text, TextAlignment};
 use crate::{
     dom::{Component, DomHtmlElement, Element, IntoComponent},
-    state::{ReadOnlyState},
+    state::{ReadOnlyState, StateCell},
     WeakRef,
 };
 use std::{borrow::Borrow, rc::Rc, any::Any};
@@ -97,6 +97,16 @@ impl Component for Span {
     #[inline]
     fn render(self) -> Result<Element<Self::State>, JsValue> {
         Ok(self.inner)
+    }
+}
+
+impl<T: ?Sized + Any + ToString> IntoComponent for &StateCell<'_, T> {
+    type Component = Result<Span, JsValue>;
+    type State = ();
+
+    #[inline]
+    fn into_component (self) -> Self::Component {
+        Span::display(self)
     }
 }
 

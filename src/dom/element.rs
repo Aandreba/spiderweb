@@ -2,14 +2,13 @@ use crate::{state::StateCell, WeakRef};
 
 use super::{create_element, Component, DomNode, IntoComponent};
 use js_sys::Function;
-use vector_mapp::binary::BinaryMap;
+use slab::Slab;
 use std::{
     any::Any,
     borrow::{Borrow, Cow},
-    cell::{Cell, UnsafeCell},
+    cell::{UnsafeCell},
     hint::unreachable_unchecked,
     marker::PhantomData,
-    num::NonZeroU64,
     ops::Deref,
     rc::Rc,
 };
@@ -31,6 +30,9 @@ extern "C" {
     #[wasm_bindgen(structural, method, catch, js_name = setAttribute)]
     fn set_attribute(this: &DomHtmlElement, name: &str, value: &str) -> Result<(), JsValue>;
 
+    #[wasm_bindgen(structural, method, js_name = cloneNode)]
+    fn clone_node(this: &DomHtmlElement, deep: bool) -> DomHtmlElement;
+
     #[wasm_bindgen(structural, method, getter)]
     pub(super) fn style(this: &DomHtmlElement) -> CssStyleDeclaration;
 
@@ -44,11 +46,12 @@ extern "C" {
     ) -> Result<(), JsValue>;
 }
 
+pub type StatelessElement = Element<()>;
 pub type ChildHandleRef<'a, T, S> = ChildHandle<T, &'a Element<S>>;
 pub type ChildHandleShared<T, S> = ChildHandle<T, Rc<Element<S>>>;
 
 pub struct ChildHandle<T, E> {
-    id: NonZeroU64,
+    id: usize,
     parent: E,
     _phtm: PhantomData<T>,
     _nothread: PhantomData<*mut ()>,
@@ -56,36 +59,38 @@ pub struct ChildHandle<T, E> {
 
 pub struct Element<T: ?Sized> {
     pub(super) inner: DomHtmlElement,
-    pub(super) current_id: Cell<NonZeroU64>,
     // id's can only increase, thus list is always sorted. let's use binary search!
-    pub(super)  children: UnsafeCell<BinaryMap<NonZeroU64, Element<Box<dyn Any>>>>,
-    pub(super)  state: T,
+    pub(super) children: UnsafeCell<Slab<Element<Box<dyn Any>>>>,
+    pub(super) state: T,
 }
 
-impl<T> Element<T> {
+impl<T: ?Sized> Element<T> {
     #[inline]
-    pub(super) fn from_dom(inner: DomHtmlElement, state: T) -> Self {
+    pub(super) fn from_dom(inner: DomHtmlElement, state: T) -> Self where T: Sized {
         return Self {
             inner,
-            current_id: unsafe { Cell::new(NonZeroU64::new_unchecked(1)) },
             children: Default::default(),
             state,
         };
     }
 
     #[inline]
-    pub fn new (tag: &str, state: T) -> Self {
+    pub fn new(tag: &str, state: T) -> Self where T: Sized {
         let inner = create_element(tag);
         return Self {
             inner: inner.into(),
-            current_id: unsafe { Cell::new(NonZeroU64::new_unchecked(1)) },
             children: Default::default(),
             state,
         };
     }
 
     #[inline]
-    pub unsafe fn inner (&self) -> &DomHtmlElement {
+    pub fn default (tag: &str) -> Self where T: Default {
+        Self::new(tag, Default::default())
+    }
+
+    #[inline]
+    pub unsafe fn inner(&self) -> &DomHtmlElement {
         &self.inner
     }
 
@@ -167,54 +172,44 @@ impl<T> Element<T> {
     ) -> Result<ChildHandle<C::State, D>, JsValue> {
         let child = child.into_component().render()?;
         this.inner.append_child(&child.inner)?;
-
-        let id = unsafe {
-            let prev = this.current_id.get();
-            #[cfg(feature = "nightly")]
-            this.current_id.set(prev.unchecked_add(1));
-            #[cfg(not(feature = "nightly"))]
-            this.current_id.set(prev.checked_add(1).unwrap_unchecked());
-            prev
-        };
-
-        // todo optimize in nightly
-        unsafe {
-            (&mut *this.children.get()).insert_back_unchecked(
-                id,
-                Element {
-                    inner: child.inner,
-                    current_id: child.current_id,
-                    children: child.children,
-                    state: Box::new(child.state),
-                },
-            );
-        }
+        let id = unsafe { &mut *this.children.get() }.insert(Element {
+            inner: child.inner,
+            children: child.children,
+            state: Box::new(child.state),
+        });
 
         return Ok(ChildHandle {
             id,
             parent: this,
             _phtm: PhantomData,
-            _nothread: PhantomData
+            _nothread: PhantomData,
         });
     }
 
     #[doc(hidden)]
     #[inline]
-    pub fn append_child_inner<C: IntoComponent>(self, child: C) -> Result<Self, JsValue> {
+    pub fn append_child_inner<C: IntoComponent>(self, child: C) -> Result<Self, JsValue> where T: Sized {
         Self::append_child_by_deref(&self, child)?;
         return Ok(self);
+    }
+}
+
+impl StatelessElement {
+    #[inline]
+    pub fn stateless (tag: &str) -> Self {
+        Self::new(tag, ())
     }
 }
 
 impl<T: Any, S: ?Sized, E: Deref<Target = Element<S>>> ChildHandle<T, E> {
     /// Returns a reference to the child's state
     #[inline]
-    pub fn state (&self) -> &T {
+    pub fn state(&self) -> &T {
         unsafe {
-            return match (&*self.parent.children.get()).get(&self.id) {
+            return match (&*self.parent.children.get()).get(self.id) {
                 Some(x) => &*(x.state() as *const dyn Any as *const T),
-                None => unreachable_unchecked()
-            }
+                None => unreachable_unchecked(),
+            };
         }
     }
 
@@ -222,7 +217,7 @@ impl<T: Any, S: ?Sized, E: Deref<Target = Element<S>>> ChildHandle<T, E> {
     pub fn detach(self) -> Element<T> {
         unsafe {
             let children = &mut *self.parent.children.get();
-            match children.remove(&self.id) {
+            match children.try_remove(self.id) {
                 Some(element) => {
                     let _ = self
                         .parent
@@ -232,7 +227,6 @@ impl<T: Any, S: ?Sized, E: Deref<Target = Element<S>>> ChildHandle<T, E> {
 
                     return Element {
                         inner: element.inner,
-                        current_id: element.current_id,
                         children: element.children,
                         #[cfg(feature = "nightly")]
                         state: *element.state.downcast_unchecked::<T>(),
@@ -252,10 +246,22 @@ impl<T, S: ?Sized, E: Deref<Target = Element<S>>> Deref for ChildHandle<T, E> {
     #[inline]
     fn deref(&self) -> &Self::Target {
         unsafe {
-            match (&*self.parent.children.get()).get(&self.id) {
+            match (&*self.parent.children.get()).get(self.id) {
                 Some(x) => x,
-                None => unreachable_unchecked()
+                None => unreachable_unchecked(),
             }
+        }
+    }
+}
+
+impl<T: Clone> Clone for Element<T> {
+    /// NOTE THAT CHILDREN AND EVENT LISTENERS WILL NOT BE CLONED
+    #[inline]
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone_node(false),
+            children: UnsafeCell::new(Slab::new()),
+            state: self.state.clone(),
         }
     }
 }

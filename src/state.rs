@@ -3,7 +3,7 @@
 use std::{
     cell::UnsafeCell,
     fmt::Display,
-    rc::{self, Rc}, ops::Deref,
+    rc::{self, Rc}, ops::*,
 };
 
 enum Strong<'a, T: ?Sized> {
@@ -16,7 +16,7 @@ enum Weak<'a, T: ?Sized> {
     Listener(rc::Weak<dyn 'a + Listener<T>>),
 }
 
-/// A state cell that cannot be written into
+/// A state cell that cannot be written to
 #[repr(transparent)]
 pub struct ReadOnlyState<'a, T: ?Sized> (pub(crate) StateCell<'a, T>);
 
@@ -91,6 +91,16 @@ impl<'a, T: ?Sized> ReadOnlyState<'a, T> {
     }
 
     #[inline]
+    pub fn get (&self) -> T where T: Copy {
+        unsafe { *self.0.inner.get() }
+    }
+
+    #[inline]
+    pub fn get_clone (&self) -> T where T: Clone {
+        unsafe { &*self.0.inner.get() }.clone()
+    }
+
+    #[inline]
     pub fn with<U, F: FnOnce(&T) -> U>(&self, f: F) -> U {
         unsafe { f(&*self.0.inner.get()) }
     }
@@ -124,6 +134,37 @@ impl<'a, T: ?Sized> ReadOnlyState<'a, T> {
     pub fn bind_weak(&self, weak: rc::Weak<dyn 'a + Listener<T>>) {
         unsafe { &mut *self.0.weak.get() }.push(Weak::Listener(weak));
     }
+}
+
+macro_rules! impl_assign {
+    ($($trait:ident as $fn:ident),+) => {
+        $(
+            impl<T: ?Sized + $trait<Rhs>, Rhs> $trait<Rhs> for StateCell<'_, T> {
+                #[inline]
+                fn $fn(&mut self, rhs: Rhs) {
+                    self.update(|x| x.$fn(rhs))
+                }
+            }
+
+            impl<T: ?Sized + $trait<Rhs>, Rhs> $trait<Rhs> for &StateCell<'_, T> {
+                #[inline]
+                fn $fn(&mut self, rhs: Rhs) {
+                    self.update(|x| x.$fn(rhs))
+                }
+            }
+        )+
+    };
+}
+
+impl_assign! {
+    AddAssign as add_assign,
+    SubAssign as sub_assign,
+    MulAssign as mul_assign,
+    DivAssign as div_assign,
+    RemAssign as rem_assign,
+    BitAndAssign as bitand_assign,
+    BitOrAssign as bitor_assign,
+    BitXorAssign as bitxor_assign
 }
 
 impl<'a, T> From<StateCell<'a, T>> for ReadOnlyState<'a, T> {

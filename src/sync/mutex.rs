@@ -6,7 +6,9 @@ use std::{
     task::{Poll, Waker},
 };
 
+/// Future for [`lock`](Mutex::lock)
 pub type MutexLockFutureRef<'a, T> = MutexLockFuture<T, &'a Mutex<T>>;
+/// Future for [`lock_shared`](Mutex::lock_shared)
 pub type MutexLockFutureShared<T> = MutexLockFuture<T, Rc<Mutex<T>>>;
 
 pub type MutexGuardRef<'a, T> = MutexGuard<T, &'a Mutex<T>>;
