@@ -1,4 +1,4 @@
-use super::Element;
+use super::{Element};
 use std::{any::Any};
 use wasm_bindgen::{prelude::wasm_bindgen, JsValue};
 
@@ -22,7 +22,7 @@ extern "C" {
 cfg_if::cfg_if! {
     if #[cfg(feature = "nightly")] {
         /// Component without inherent state
-        pub trait StatelessComponent = Component<State = ()>; 
+        pub trait StatelessComponent = Component<State = ()>;
     } else {
         /// Component without inherent state
         pub trait StatelessComponent: Component<State = ()> {}
@@ -55,6 +55,7 @@ impl<T: Component> Component for Box<T> {
     }
 }
 
+/// A type that can be converted into a [`Component`]
 pub trait IntoComponent {
     type Component: Component<State = Self::State>;
     type State: Any;

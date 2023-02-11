@@ -107,7 +107,7 @@ use crate::dom::now;
 /// [`checked_duration_since`]: Instant::checked_duration_since
 ///
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Instant (Duration);
+pub struct Instant (pub(crate) Duration);
 
 impl Instant {
     /// Returns an instant corresponding to "now".

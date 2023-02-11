@@ -1,7 +1,7 @@
 use js_sys::Function;
 use wasm_bindgen::{prelude::wasm_bindgen, JsCast, JsValue, UnwrapThrowExt};
 
-flat_mod! { component, element }
+flat_mod! { component, element, event }
 pub mod view;
 type DOMHighResTimeStamp = f64;
 

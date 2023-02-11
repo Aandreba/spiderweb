@@ -1,18 +1,18 @@
-use crate::{state::StateCell, WeakRef};
+use crate::{state::{ReadState}, WeakRef};
 
-use super::{create_element, Component, DomNode, IntoComponent};
+use super::{create_element, Component, DomNode, IntoComponent, Event};
 use js_sys::Function;
 use slab::Slab;
 use std::{
     any::Any,
-    borrow::{Borrow, Cow},
+    borrow::{Borrow},
     cell::{UnsafeCell},
     hint::unreachable_unchecked,
     marker::PhantomData,
     ops::Deref,
     rc::Rc,
 };
-use wasm_bindgen::{prelude::wasm_bindgen, JsCast, JsValue, UnwrapThrowExt};
+use wasm_bindgen::{prelude::{wasm_bindgen, Closure}, JsCast, JsValue, UnwrapThrowExt};
 
 #[wasm_bindgen]
 extern "C" {
@@ -25,13 +25,13 @@ extern "C" {
     pub(super) type CssStyleDeclaration;
 
     #[wasm_bindgen(structural, method, js_name = getAttribute)]
-    fn get_attribute(this: &DomHtmlElement, name: &str) -> String;
+    pub(super) fn get_attribute(this: &DomHtmlElement, name: &str) -> String;
 
     #[wasm_bindgen(structural, method, catch, js_name = setAttribute)]
-    fn set_attribute(this: &DomHtmlElement, name: &str, value: &str) -> Result<(), JsValue>;
+    pub(super) fn set_attribute(this: &DomHtmlElement, name: &str, value: &str) -> Result<(), JsValue>;
 
     #[wasm_bindgen(structural, method, js_name = cloneNode)]
-    fn clone_node(this: &DomHtmlElement, deep: bool) -> DomHtmlElement;
+    pub(super) fn clone_node(this: &DomHtmlElement, deep: bool) -> DomHtmlElement;
 
     #[wasm_bindgen(structural, method, getter)]
     pub(super) fn style(this: &DomHtmlElement) -> CssStyleDeclaration;
@@ -59,7 +59,7 @@ pub struct ChildHandle<T, E> {
 
 pub struct Element<T: ?Sized> {
     pub(super) inner: DomHtmlElement,
-    // id's can only increase, thus list is always sorted. let's use binary search!
+    pub(super) callbacks: UnsafeCell<Vec<Closure<dyn FnMut(Event)>>>,
     pub(super) children: UnsafeCell<Slab<Element<Box<dyn Any>>>>,
     pub(super) state: T,
 }
@@ -69,6 +69,7 @@ impl<T: ?Sized> Element<T> {
     pub(super) fn from_dom(inner: DomHtmlElement, state: T) -> Self where T: Sized {
         return Self {
             inner,
+            callbacks: Default::default(),
             children: Default::default(),
             state,
         };
@@ -79,6 +80,7 @@ impl<T: ?Sized> Element<T> {
         let inner = create_element(tag);
         return Self {
             inner: inner.into(),
+            callbacks: Default::default(),
             children: Default::default(),
             state,
         };
@@ -99,19 +101,10 @@ impl<T: ?Sized> Element<T> {
         return &self.state;
     }
 
-    #[inline]
-    pub fn set_attribute(&self, name: &str, value: &str) -> Result<(), JsValue> {
-        if let Some(inner) = self.inner.dyn_ref::<DomHtmlElement>() {
-            return inner.set_attribute(name, value);
-        } else {
-            return Err(JsValue::from_str("This element's node isn't a DOM element"));
-        }
-    }
-
-    pub fn set_dyn_attribute<'a, F, S, U>(
+    pub fn set_attribute<'a, F, S, U>(
         &self,
         name: &'a str,
-        state: &StateCell<'a, U>,
+        state: &ReadState<'a, U>,
         mut f: F,
     ) -> Result<(), JsValue>
     where
@@ -119,35 +112,28 @@ impl<T: ?Sized> Element<T> {
         F: 'a + FnMut(&U) -> S,
         S: Borrow<str>,
     {
-        if let Some(inner) = self.inner.dyn_ref::<DomHtmlElement>() {
-            let inner = WeakRef::new(inner)?;
-            state.register_weak(move |x| {
-                if let Some(inner) = inner.deref() {
-                    if let Err(e) = inner
-                        .unchecked_ref::<DomHtmlElement>()
-                        .set_attribute(name, f(x).borrow())
-                    {
-                        crate::eprintln!(&e)
-                    }
+        let inner = WeakRef::new(&self.inner)?;
+        state.register_weak(move |x| {
+            if let Some(inner) = inner.deref() {
+                if let Err(e) = inner
+                    .unchecked_ref::<DomHtmlElement>()
+                    .set_attribute(name, f(x).borrow())
+                {
+                    crate::eprintln!(&e)
                 }
-                return false;
-            });
+            }
+            return false;
+        });
 
-            todo!()
-        } else {
-            return Err(JsValue::from_str("This element's node isn't a DOM element"));
-        }
+        todo!()
     }
 
     #[inline]
-    pub fn set_callback<F: for<'a> FnOnce(&'a T) -> Cow<'a, Function>>(&self, event: &str, f: F) {
-        let f = f(&self.state);
-        self.inner.add_event_listener(event, &f);
-    }
-
-    #[inline]
-    pub fn set_callback_ref<F: for<'a> FnOnce(&'a T) -> &'a Function>(&self, event: &str, f: F) {
-        self.set_callback(event, |x| Cow::Borrowed(f(x)))
+    pub fn set_callback<F: 'static + FnMut(Event)> (&self, event: &str, f: F) {        
+        let f = Closure::new(f);
+        debug_assert!(f.as_ref().is_instance_of::<Function>());
+        self.inner.add_event_listener(event, f.as_ref().unchecked_ref::<Function>());
+        unsafe { &mut *self.callbacks.get() }.push(f)
     }
 
     #[inline]
@@ -174,6 +160,7 @@ impl<T: ?Sized> Element<T> {
         this.inner.append_child(&child.inner)?;
         let id = unsafe { &mut *this.children.get() }.insert(Element {
             inner: child.inner,
+            callbacks: child.callbacks,
             children: child.children,
             state: Box::new(child.state),
         });
@@ -184,6 +171,31 @@ impl<T: ?Sized> Element<T> {
             _phtm: PhantomData,
             _nothread: PhantomData,
         });
+    }
+
+    #[doc(hidden)]
+    #[inline]
+    pub fn set_callback_inner<F: 'static + FnMut(Event)> (self, event: &str, f: F) -> Self where T: Sized {        
+        self.set_callback(event, f);
+        self
+    }
+
+    #[doc(hidden)]
+    #[inline]
+    pub fn set_attribute_inner<'a, F, S, U>(
+        self,
+        name: &'a str,
+        state: &ReadState<'a, U>,
+        f: F,
+    ) -> Result<Self, JsValue>
+    where
+        T: Sized,
+        U: ?Sized,
+        F: 'a + FnMut(&U) -> S,
+        S: Borrow<str>,
+    {
+        self.set_attribute(name, state, f)?;
+        return Ok(self)
     }
 
     #[doc(hidden)]
@@ -227,6 +239,7 @@ impl<T: Any, S: ?Sized, E: Deref<Target = Element<S>>> ChildHandle<T, E> {
 
                     return Element {
                         inner: element.inner,
+                        callbacks: element.callbacks,
                         children: element.children,
                         #[cfg(feature = "nightly")]
                         state: *element.state.downcast_unchecked::<T>(),
@@ -250,18 +263,6 @@ impl<T, S: ?Sized, E: Deref<Target = Element<S>>> Deref for ChildHandle<T, E> {
                 Some(x) => x,
                 None => unreachable_unchecked(),
             }
-        }
-    }
-}
-
-impl<T: Clone> Clone for Element<T> {
-    /// NOTE THAT CHILDREN AND EVENT LISTENERS WILL NOT BE CLONED
-    #[inline]
-    fn clone(&self) -> Self {
-        Self {
-            inner: self.inner.clone_node(false),
-            children: UnsafeCell::new(Slab::new()),
-            state: self.state.clone(),
         }
     }
 }

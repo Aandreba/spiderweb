@@ -1,7 +1,7 @@
 use super::{Text, TextAlignment};
 use crate::{
     dom::{Component, DomHtmlElement, Element, IntoComponent},
-    state::{ReadOnlyState, StateCell},
+    state::{ReadState, State},
     WeakRef,
 };
 use std::{borrow::Borrow, rc::Rc, any::Any};
@@ -29,7 +29,7 @@ impl Span {
 
 impl Span {
     #[inline]
-    pub fn dynamic<'a, T, F, S>(state: &ReadOnlyState<'a, T>, f: F) -> Result<Self, JsValue>
+    pub fn dynamic<'a, T, F, S>(state: &ReadState<'a, T>, f: F) -> Result<Self, JsValue>
     where
         T: ?Sized,
         F: 'a + FnMut(&T) -> S,
@@ -38,7 +38,7 @@ impl Span {
         Self::dynamic_aligned(state, f, TextAlignment::default())
     }
 
-    pub fn dynamic_aligned<'a, T, F, S>(state: &ReadOnlyState<'a, T>, mut f: F, align: impl Into<TextAlignment>) -> Result<Self, JsValue>
+    pub fn dynamic_aligned<'a, T, F, S>(state: &ReadState<'a, T>, mut f: F, align: impl Into<TextAlignment>) -> Result<Self, JsValue>
     where
         T: ?Sized,
         F: 'a + FnMut(&T) -> S,
@@ -60,6 +60,7 @@ impl Span {
                 inner.set_data(f(x).borrow());
                 return true;
             }
+
             return false;
         });
 
@@ -81,12 +82,12 @@ impl Span {
 
 impl Span {
     #[inline]
-    pub fn display<'a, T: 'a + ?Sized + ToString> (state: &ReadOnlyState<'a, T>) -> Result<Self, JsValue> {
+    pub fn display<'a, T: 'a + ?Sized + ToString> (state: &ReadState<'a, T>) -> Result<Self, JsValue> {
         return Self::display_aligned(state, TextAlignment::default())
     }
 
     #[inline]
-    pub fn display_aligned<'a, T: 'a + ?Sized + ToString> (state: &ReadOnlyState<'a, T>, align: impl Into<TextAlignment>) -> Result<Self, JsValue> {
+    pub fn display_aligned<'a, T: 'a + ?Sized + ToString> (state: &ReadState<'a, T>, align: impl Into<TextAlignment>) -> Result<Self, JsValue> {
         return Self::dynamic_aligned(state, ToString::to_string, align)
     }
 }
@@ -100,7 +101,7 @@ impl Component for Span {
     }
 }
 
-impl<T: ?Sized + Any + ToString> IntoComponent for &StateCell<'_, T> {
+impl<T: ?Sized + Any + ToString> IntoComponent for &State<'_, T> {
     type Component = Result<Span, JsValue>;
     type State = ();
 
@@ -110,7 +111,7 @@ impl<T: ?Sized + Any + ToString> IntoComponent for &StateCell<'_, T> {
     }
 }
 
-impl<T: ?Sized + Any + ToString> IntoComponent for &ReadOnlyState<'_, T> {
+impl<T: ?Sized + Any + ToString> IntoComponent for &ReadState<'_, T> {
     type Component = Result<Span, JsValue>;
     type State = ();
 

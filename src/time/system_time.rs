@@ -129,7 +129,7 @@ pub struct SystemTimeError(Duration);
 ///
 /// [`add`]: SystemTime::add
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct SystemTime(Duration);
+pub struct SystemTime(pub(crate) Duration);
 
 impl SystemTime {
     pub const UNIX_EPOCH: SystemTime = UNIX_EPOCH;

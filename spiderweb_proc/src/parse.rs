@@ -1,7 +1,10 @@
 use derive_syn_parse::Parse;
 use proc_macro2::{Ident, TokenStream};
 use quote::{quote, ToTokens};
-use syn::{braced, ext::IdentExt, parse::Parse, spanned::Spanned, Expr, Path, Token};
+use syn::{
+    braced, custom_keyword, ext::IdentExt, parse::Parse, spanned::Spanned, Expr, Path, Token,
+};
+custom_keyword!(on);
 
 pub enum Content {
     Element(Element),
@@ -16,9 +19,11 @@ pub struct Element {
 
 #[derive(Parse)]
 pub struct Attribute {
+    #[call(parse_on)]
+    pub on_token: Option<(on, Token![:])>,
     pub name: Ident,
     #[peek(Token![=])]
-    pub value: Option<AttributeValue>
+    pub value: Option<AttributeValue>,
 }
 
 #[derive(Parse)]
@@ -50,7 +55,7 @@ pub struct CloseTag {
 
 impl Content {
     #[inline]
-    fn parse(input: syn::parse::ParseStream) -> syn::Result<Option<Self>> {
+    fn parse_option(input: syn::parse::ParseStream) -> syn::Result<Option<Self>> {
         if input.peek(Token![<]) {
             if input.peek2(Token![/]) {
                 return Ok(None);
@@ -88,7 +93,7 @@ impl Parse for Element {
         }
 
         let mut content = Vec::new();
-        while let Some(x) = Content::parse(input)? {
+        while let Some(x) = Content::parse_option(input)? {
             content.push(x)
         }
 
@@ -142,28 +147,46 @@ impl ToTokens for Element {
 
 fn client_primitive(Element { open, content, .. }: &Element, tokens: &mut TokenStream) {
     let path = &open.path;
+    let mut my_tokens = quote! { ::spiderweb::dom::Element::stateless(stringify!(#path)) };
 
-    if content.is_empty() {
-        return tokens.extend(quote! {
-            ::std::result::Result::<::spiderweb::dom::Element::<_>, ::spiderweb::wasm_bindgen::JsValue>::Ok(::spiderweb::dom::Element::new(stringify!(#path), ()))
-        });
+    // Content
+    for content in content.iter() {
+        let content = content.render();
+        my_tokens.extend(quote! { .append_child_inner(#content)? });
     }
 
-    let content = content.iter().map(Content::render);
-    return tokens.extend(quote! {
-        (|| {
-            ::std::result::Result::<::spiderweb::dom::Element::<_>, ::spiderweb::wasm_bindgen::JsValue>::Ok(
-                ::spiderweb::dom::Element::new(stringify!(#path), ()).
-                    #(append_child_inner(#content)?).*
-            )
-        })()
-    });
+    // Attributes
+    for Attribute {
+        on_token,
+        name,
+        value,
+    } in open.attrs.iter()
+    {
+        let value = value
+            .as_ref()
+            .map_or_else(|| name.to_token_stream(), |x| x.value.to_token_stream());
+
+        match on_token.is_some() {
+            true => {
+                my_tokens.extend(quote! { .set_callback_inner(stringify!(#name), #value) })
+            },
+            false => {
+                my_tokens.extend(quote! { .set_attribute_inner(stringify!(#name), #value, ::spiderweb::std::string::ToString::to_string)? });
+            }
+        }
+    }
+
+    tokens.extend(quote! {
+        (|| ::spiderweb::std::result::Result::<_, ::spiderweb::wasm_bindgen::JsValue>::Ok(#my_tokens))()
+    })
 }
 
 fn client_component(Element { open, content, .. }: &Element, tokens: &mut TokenStream) {
     let path = &open.path;
     let attrs = open.attrs.iter().map(|Attribute { name, value, .. }| {
-        let value = value.as_ref().map(|AttributeValue { value, .. }| quote! { :#value });
+        let value = value
+            .as_ref()
+            .map(|AttributeValue { value, .. }| quote! { :#value });
         quote! {
            #name #value
         }
@@ -193,4 +216,14 @@ fn parse_attributes(input: syn::parse::ParseStream) -> syn::Result<Vec<Attribute
         result.push(input.parse()?)
     }
     return Ok(result);
+}
+
+#[inline]
+fn parse_on(input: syn::parse::ParseStream) -> syn::Result<Option<(on, Token![:])>> {
+    if input.peek(on) {
+        let on = input.parse()?;
+        let token = input.parse()?;
+        return Ok(Some((on, token)));
+    }
+    return Ok(None);
 }

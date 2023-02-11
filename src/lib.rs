@@ -70,6 +70,8 @@ impl WeakRef {
 
 pub(crate) extern crate self as spiderweb;
 #[doc(hidden)]
+pub extern crate std;
+#[doc(hidden)]
 pub extern crate wasm_bindgen;
 #[doc(hidden)]
 pub extern crate js_sys;

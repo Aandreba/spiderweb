@@ -1,7 +1,7 @@
 use wasm_bindgen::prelude::wasm_bindgen;
 use super::DomNode;
 
-flat_mod! { span, pane }
+flat_mod! { span }
 
 #[wasm_bindgen]
 extern "C" {

@@ -18,9 +18,9 @@ enum Weak<'a, T: ?Sized> {
 
 /// A state cell that cannot be written to
 #[repr(transparent)]
-pub struct ReadOnlyState<'a, T: ?Sized> (pub(crate) StateCell<'a, T>);
+pub struct ReadState<'a, T: ?Sized> (pub(crate) State<'a, T>);
 
-pub struct StateCell<'a, T: ?Sized> {
+pub struct State<'a, T: ?Sized> {
     strong: UnsafeCell<Vec<Strong<'a, T>>>,
     weak: UnsafeCell<Vec<Weak<'a, T>>>,
     inner: UnsafeCell<T>,
@@ -30,7 +30,7 @@ pub trait Listener<T: ?Sized> {
     fn receive(&self, v: &T);
 }
 
-impl<'a, T: ?Sized> StateCell<'a, T> {
+impl<'a, T: ?Sized> State<'a, T> {
     #[inline]
     pub fn new(v: T) -> Self
     where
@@ -81,13 +81,13 @@ impl<'a, T: ?Sized> StateCell<'a, T> {
     }
 }
 
-impl<'a, T: ?Sized> ReadOnlyState<'a, T> {
+impl<'a, T: ?Sized> ReadState<'a, T> {
     #[inline]
     pub fn new(v: T) -> Self
     where
         T: Sized,
     {
-        Self(StateCell::new(v))
+        Self(State::new(v))
     }
 
     #[inline]
@@ -103,6 +103,27 @@ impl<'a, T: ?Sized> ReadOnlyState<'a, T> {
     #[inline]
     pub fn with<U, F: FnOnce(&T) -> U>(&self, f: F) -> U {
         unsafe { f(&*self.0.inner.get()) }
+    }
+
+    #[inline]
+    pub fn map_into<U: 'a, F: 'a + FnMut(&T) -> U> (&self, state: &'a State<U>, mut f: F) {
+        self.register(move |x| state.set(f(x)));
+    }
+    
+    // TODO get rid of listener trait and use flags to determine weak listener release (specially for spans, that may take references from rcs)
+    #[inline]
+    pub fn map_shared<U: 'a, F: 'a + FnMut(&T) -> U> (&self, mut f: F) -> Rc<ReadState<'a, U>> {
+        let state = Rc::new(ReadState::new(self.with(&mut f)));
+        let register_state = Rc::downgrade(&state);
+        self.register_weak(move |x| {
+            if let Some(register) = register_state.upgrade() {
+                register.0.set(f(x));
+                return true
+            }
+            return false
+        });
+
+        return state
     }
 
     #[inline]
@@ -139,16 +160,16 @@ impl<'a, T: ?Sized> ReadOnlyState<'a, T> {
 macro_rules! impl_assign {
     ($($trait:ident as $fn:ident),+) => {
         $(
-            impl<T: ?Sized + $trait<Rhs>, Rhs> $trait<Rhs> for StateCell<'_, T> {
+            impl<T: ?Sized + $trait<Rhs>, Rhs> $trait<Rhs> for State<'_, T> {
                 #[inline]
                 fn $fn(&mut self, rhs: Rhs) {
                     self.update(|x| x.$fn(rhs))
                 }
             }
 
-            impl<T: ?Sized + $trait<Rhs>, Rhs> $trait<Rhs> for &StateCell<'_, T> {
+            impl<'a, T: ?Sized> State<'a, T> {
                 #[inline]
-                fn $fn(&mut self, rhs: Rhs) {
+                pub fn $fn<Rhs> (&self, rhs: Rhs) where T: $trait<Rhs> {
                     self.update(|x| x.$fn(rhs))
                 }
             }
@@ -167,25 +188,25 @@ impl_assign! {
     BitXorAssign as bitxor_assign
 }
 
-impl<'a, T> From<StateCell<'a, T>> for ReadOnlyState<'a, T> {
+impl<'a, T> From<State<'a, T>> for ReadState<'a, T> {
     #[inline]
-    fn from(value: StateCell<'a, T>) -> Self {
+    fn from(value: State<'a, T>) -> Self {
         Self(value)
     }
 }
 
-impl<'a, T: ?Sized> Deref for StateCell<'a, T> {
-    type Target = ReadOnlyState<'a, T>;
+impl<'a, T: ?Sized> Deref for State<'a, T> {
+    type Target = ReadState<'a, T>;
 
     #[inline]
     fn deref(&self) -> &Self::Target {
         unsafe {
-            &*(self as *const Self as *const ReadOnlyState<'a, T>)
+            &*(self as *const Self as *const ReadState<'a, T>)
         }
     }
 }
 
-impl<T: ?Sized + Display> Display for StateCell<'_, T> {
+impl<T: ?Sized + Display> Display for State<'_, T> {
     #[inline]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         unsafe { T::fmt(&*self.inner.get(), f) }
