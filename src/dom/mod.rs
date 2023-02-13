@@ -46,8 +46,13 @@ pub(crate) fn create_element(tag: &str) -> DomHtmlElement {
 }
 
 #[inline]
+pub(crate) fn scheduler() -> Option<Scheduler> {
+    WINDOW.with(Window::scheduler)
+}
+
+#[inline]
 pub(crate) fn now() -> DOMHighResTimeStamp {
-    PERFORMANCE.with(|perf| perf.now())
+    PERFORMANCE.with(Performance::now)
 }
 
 fn body() -> &'static Element<()> {
