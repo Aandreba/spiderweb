@@ -1,5 +1,18 @@
 use std::{time::Duration, ops::{Add, AddAssign, Sub, SubAssign}};
-use crate::dom::now;
+use wasm_bindgen::prelude::wasm_bindgen;
+
+thread_local! {
+    static PERFORMANCE: Performance = performance();
+}
+
+#[wasm_bindgen]
+extern {
+    type Performance;
+
+    fn performance () -> Performance;
+    #[wasm_bindgen(structural, method)]
+    fn now (this: &Performance) -> f64;
+}
 
 /// A measurement of a monotonically nondecreasing clock.
 /// Opaque and useful only with [`Duration`].
@@ -122,7 +135,7 @@ impl Instant {
     #[inline]
     #[must_use]
     pub fn now () -> Self {
-        Self(Duration::from_secs_f64(now() / 1000.))
+        Self(Duration::from_secs_f64(PERFORMANCE.with(Performance::now) / 1000.))
     }
 
     /// Returns the amount of time elapsed from another instant to this one,

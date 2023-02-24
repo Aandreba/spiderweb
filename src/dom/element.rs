@@ -1,277 +1,179 @@
-use crate::{state::{ReadState}, WeakRef};
-
-use super::{create_element, Component, DomNode, IntoComponent, Event};
 use js_sys::Function;
 use slab::Slab;
-use std::{
-    any::Any,
-    borrow::{Borrow},
-    cell::{UnsafeCell},
-    hint::unreachable_unchecked,
-    marker::PhantomData,
-    ops::Deref,
-    rc::Rc,
-};
-use wasm_bindgen::{prelude::{wasm_bindgen, Closure}, JsCast, JsValue, UnwrapThrowExt};
+use std::{cell::UnsafeCell, ops::Deref, any::Any, pin::Pin};
+use wasm_bindgen::{prelude::{wasm_bindgen, Closure}, JsCast, JsValue};
+
+use super::component::Component;
+
+thread_local! {
+    pub static DOCUMENT: Document = document();
+    pub static BODY: Element = Element {
+        inner: UnsafeCell::new(Inner {
+            element: DOCUMENT.with(Document::body),
+            children: Slab::new(),
+            listeners: Slab::new()
+        })
+    };
+}
 
 #[wasm_bindgen]
 extern "C" {
-    #[derive(Debug, Clone, PartialEq)]
-    #[wasm_bindgen(js_name = HTMLElement, extends = DomNode)]
-    pub type DomHtmlElement;
+    pub type Document;
+    #[wasm_bindgen(extends = Node, js_name = HTMLElement)]
+    type HtmlElement;
+    #[wasm_bindgen(extends = EventTarget)]
+    type Node;
+    type EventTarget;
 
-    #[derive(Debug, Clone, PartialEq)]
-    #[wasm_bindgen(js_name = CSSStyleDeclaration)]
-    pub(super) type CssStyleDeclaration;
+    fn document() -> Document;
+    #[wasm_bindgen(structural, method)]
+    fn body(this: &Document) -> HtmlElement;
+    #[wasm_bindgen(structural, method, js_name = createElement)]
+    fn create_element(this: &Document, tag: &str) -> HtmlElement;
 
-    #[wasm_bindgen(structural, method, js_name = getAttribute)]
-    pub(super) fn get_attribute(this: &DomHtmlElement, name: &str) -> String;
+    #[wasm_bindgen(structural, method, catch, js_name = appendChild)]
+    fn append_child (this: &Node, child: &Node) -> Result<Node, JsValue>;
+    #[wasm_bindgen(structural, method, catch, js_name = removeChild)]
+    fn remove_child (this: &Node, child: &Node) -> Result<Node, JsValue>;
 
-    #[wasm_bindgen(structural, method, catch, js_name = setAttribute)]
-    pub(super) fn set_attribute(this: &DomHtmlElement, name: &str, value: &str) -> Result<(), JsValue>;
-
-    #[wasm_bindgen(structural, method, js_name = cloneNode)]
-    pub(super) fn clone_node(this: &DomHtmlElement, deep: bool) -> DomHtmlElement;
-
-    #[wasm_bindgen(structural, method, getter)]
-    pub(super) fn style(this: &DomHtmlElement) -> CssStyleDeclaration;
-
-    #[wasm_bindgen(structural, method, js_name = getPropertyValue)]
-    pub(super) fn get_property(this: &CssStyleDeclaration, name: &str) -> String;
-    #[wasm_bindgen(structural, method, catch, js_name = setProperty)]
-    pub(super) fn set_property(
-        this: &CssStyleDeclaration,
-        name: &str,
-        value: &str,
-    ) -> Result<(), JsValue>;
+    #[wasm_bindgen(structural, method, js_name = addEventListener)]
+    fn add_event_listener (this: &EventTarget, event: &str, f: &Function);
+    #[wasm_bindgen(structural, method, js_name = removeEventListener)]
+    fn remove_event_listener (this: &EventTarget, event: &str, f: &Function);
 }
 
-pub type StatelessElement = Element<()>;
-pub type ChildHandleRef<'a, T, S> = ChildHandle<T, &'a Element<S>>;
-pub type ChildHandleShared<T, S> = ChildHandle<T, Rc<Element<S>>>;
-
-pub struct ChildHandle<T, E> {
-    id: usize,
-    parent: E,
-    _phtm: PhantomData<T>,
-    _nothread: PhantomData<*mut ()>,
+#[doc(hidden)]
+pub enum Child {
+    Element (Element),
+    Component (Pin<Box<Component<dyn Any>>>)
 }
 
-pub struct Element<T: ?Sized> {
-    pub(super) inner: DomHtmlElement,
-    pub(super) callbacks: UnsafeCell<Vec<Closure<dyn FnMut(Event)>>>,
-    pub(super) children: UnsafeCell<Slab<Element<Box<dyn Any>>>>,
-    pub(super) state: T,
+struct Inner {
+    element: HtmlElement,
+    children: Slab<Element>,
+    listeners: Slab<(&'static str, Closure<dyn FnMut()>)>,
 }
 
-impl<T: ?Sized> Element<T> {
+pub struct Element {
+    inner: UnsafeCell<Inner>,
+}
+
+pub struct ElementRef<'a> {
+    parent: &'a Element,
+    idx: usize,
+}
+
+pub struct ListenerRef<'a> {
+    parent: &'a Element,
+    idx: usize,
+}
+
+impl Element {
     #[inline]
-    pub(super) fn from_dom(inner: DomHtmlElement, state: T) -> Self where T: Sized {
+    pub fn new(tag: &str) -> Self {
+        let inner = Inner {
+            element: DOCUMENT.with(|doc| doc.create_element(tag)),
+            children: Slab::new(),
+            listeners: Slab::new(),
+        };
+
         return Self {
-            inner,
-            callbacks: Default::default(),
-            children: Default::default(),
-            state,
+            inner: UnsafeCell::new(inner),
         };
     }
 
     #[inline]
-    pub fn new(tag: &str, state: T) -> Self where T: Sized {
-        let inner = create_element(tag);
-        return Self {
-            inner: inner.into(),
-            callbacks: Default::default(),
-            children: Default::default(),
-            state,
+    pub fn append_child(&self, element: impl Into<Child>) -> Result<ElementRef<'_>, JsValue> {
+        let this = unsafe { &mut *self.inner.get() };
+        let element: Child = element.into();
+
+        this.element.append_child(&unsafe { &*element.inner.get() }.element)?;
+
+        let idx = this
+            .children
+            .insert(element);
+        return Ok(ElementRef { parent: self, idx });
+    }
+
+    #[inline]
+    pub fn add_event_listener<'a>(
+        &'a self,
+        event: &'static str,
+        f: Box<dyn FnMut()>,
+    ) -> ListenerRef<'a> {
+        let this = unsafe { &mut *self.inner.get() };
+        let f = Closure::wrap(f);
+
+        this.element.add_event_listener(event, f.as_ref().unchecked_ref());
+        let idx = this.listeners.insert((event, f));
+        
+        return ListenerRef {
+            parent: self,
+            idx,
         };
     }
-
-    #[inline]
-    pub fn default (tag: &str) -> Self where T: Default {
-        Self::new(tag, Default::default())
-    }
-
-    #[inline]
-    pub unsafe fn inner(&self) -> &DomHtmlElement {
-        &self.inner
-    }
-
-    #[inline]
-    pub fn state(&self) -> &T {
-        return &self.state;
-    }
-
-    pub fn set_attribute<'a, F, S, U>(
-        &self,
-        name: &'a str,
-        state: &ReadState<'a, U>,
-        mut f: F,
-    ) -> Result<(), JsValue>
-    where
-        U: ?Sized,
-        F: 'a + FnMut(&U) -> S,
-        S: Borrow<str>,
-    {
-        let inner = WeakRef::new(&self.inner)?;
-        state.register_weak(move |x| {
-            if let Some(inner) = inner.deref() {
-                if let Err(e) = inner
-                    .unchecked_ref::<DomHtmlElement>()
-                    .set_attribute(name, f(x).borrow())
-                {
-                    crate::eprintln!(&e)
-                }
-            }
-            return false;
-        });
-
-        todo!()
-    }
-
-    #[inline]
-    pub fn set_callback<F: 'static + FnMut(Event)> (&self, event: &str, f: F) {        
-        let f = Closure::new(f);
-        debug_assert!(f.as_ref().is_instance_of::<Function>());
-        self.inner.add_event_listener(event, f.as_ref().unchecked_ref::<Function>());
-        unsafe { &mut *self.callbacks.get() }.push(f)
-    }
-
-    #[inline]
-    pub fn append_child<C: IntoComponent>(
-        &self,
-        child: C,
-    ) -> Result<ChildHandleRef<'_, C::State, T>, JsValue> {
-        Self::append_child_by_deref(self, child)
-    }
-
-    #[inline]
-    pub fn append_child_shared<C: IntoComponent>(
-        self: Rc<Self>,
-        child: C,
-    ) -> Result<ChildHandleShared<C::State, T>, JsValue> {
-        Self::append_child_by_deref(self, child)
-    }
-
-    pub fn append_child_by_deref<D: Deref<Target = Self>, C: IntoComponent>(
-        this: D,
-        child: C,
-    ) -> Result<ChildHandle<C::State, D>, JsValue> {
-        let child = child.into_component().render()?;
-        this.inner.append_child(&child.inner)?;
-        let id = unsafe { &mut *this.children.get() }.insert(Element {
-            inner: child.inner,
-            callbacks: child.callbacks,
-            children: child.children,
-            state: Box::new(child.state),
-        });
-
-        return Ok(ChildHandle {
-            id,
-            parent: this,
-            _phtm: PhantomData,
-            _nothread: PhantomData,
-        });
-    }
-
-    #[doc(hidden)]
-    #[inline]
-    pub fn set_callback_inner<F: 'static + FnMut(Event)> (self, event: &str, f: F) -> Self where T: Sized {        
-        self.set_callback(event, f);
-        self
-    }
-
-    #[doc(hidden)]
-    #[inline]
-    pub fn set_attribute_inner<'a, F, S, U>(
-        self,
-        name: &'a str,
-        state: &ReadState<'a, U>,
-        f: F,
-    ) -> Result<Self, JsValue>
-    where
-        T: Sized,
-        U: ?Sized,
-        F: 'a + FnMut(&U) -> S,
-        S: Borrow<str>,
-    {
-        self.set_attribute(name, state, f)?;
-        return Ok(self)
-    }
-
-    #[doc(hidden)]
-    #[inline]
-    pub fn append_child_inner<C: IntoComponent>(self, child: C) -> Result<Self, JsValue> where T: Sized {
-        Self::append_child_by_deref(&self, child)?;
-        return Ok(self);
-    }
 }
 
-impl StatelessElement {
-    #[inline]
-    pub fn stateless (tag: &str) -> Self {
-        Self::new(tag, ())
-    }
-}
-
-impl<T: Any, S: ?Sized, E: Deref<Target = Element<S>>> ChildHandle<T, E> {
-    /// Returns a reference to the child's state
-    #[inline]
-    pub fn state(&self) -> &T {
-        unsafe {
-            return match (&*self.parent.children.get()).get(self.id) {
-                Some(x) => &*(x.state() as *const dyn Any as *const T),
-                None => unreachable_unchecked(),
-            };
-        }
-    }
-
-    /// Detaches the child from it's parent, returning the child's state
-    pub fn detach(self) -> Element<T> {
-        unsafe {
-            let children = &mut *self.parent.children.get();
-            match children.try_remove(self.id) {
-                Some(element) => {
-                    let _ = self
-                        .parent
-                        .inner
-                        .remove_child(&element.inner)
-                        .unwrap_throw();
-
-                    return Element {
-                        inner: element.inner,
-                        callbacks: element.callbacks,
-                        children: element.children,
-                        #[cfg(feature = "nightly")]
-                        state: *element.state.downcast_unchecked::<T>(),
-                        #[cfg(not(feature = "nightly"))]
-                        state: *element.state.downcast::<T>().unwrap_unchecked(),
-                    };
-                }
-                None => unreachable_unchecked(),
-            };
-        }
-    }
-}
-
-impl<T, S: ?Sized, E: Deref<Target = Element<S>>> Deref for ChildHandle<T, E> {
-    type Target = Element<Box<dyn Any>>;
+impl<'a> Deref for ElementRef<'a> {
+    type Target = Element;
 
     #[inline]
     fn deref(&self) -> &Self::Target {
         unsafe {
-            match (&*self.parent.children.get()).get(self.id) {
-                Some(x) => x,
-                None => unreachable_unchecked(),
+            return (&*self.parent.inner.get())
+                .children
+                .get(self.idx)
+                .unwrap_unchecked();
+        }
+    }
+}
+
+impl Drop for Element {
+    #[inline]
+    fn drop(&mut self) {
+        let inner = self.inner.get_mut();
+        for (event, f) in inner.listeners.drain() {
+            inner.element.remove_event_listener(event, f.as_ref().unchecked_ref());
+        }
+    }
+}
+
+impl Child {
+    #[inline]
+    fn element (&self) -> &HtmlElement {
+        unsafe {
+            match self {
+                Self::Element(x) => &(&*x.inner.get()).element,
+                Self::Component(x) => &(&*x.inner.inner.get()).element
             }
         }
     }
 }
 
-impl<T: Any> Component for Element<T> {
-    type State = T;
-
+impl From<Element> for Child {
     #[inline]
-    fn render(self) -> Result<Element<Self::State>, JsValue> {
-        Ok(self)
+    fn from(value: Element) -> Self {
+        Self::Element(value)
+    }
+}
+
+impl<T: Any> From<Component<T>> for Child {
+    #[inline]
+    fn from(value: Component<T>) -> Self {
+        Self::Component(Box::pin(value))
+    }
+}
+
+impl From<Box<Component<dyn Any>>> for Child {
+    #[inline]
+    fn from(value: Box<Component<dyn Any>>) -> Self {
+        Self::Component(Box::into_pin(value))
+    }
+}
+
+impl From<Pin<Box<Component<dyn Any>>>> for Child {
+    #[inline]
+    fn from(value: Pin<Box<Component<dyn Any>>>) -> Self {
+        Self::Component(value)
     }
 }

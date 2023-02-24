@@ -1,176 +1,138 @@
-//flat_mod! { join }
+use std::{cell::UnsafeCell, ops::*, rc::Rc};
 
-use std::{
-    cell::UnsafeCell,
-    fmt::Display,
-    rc::{self, Rc}, ops::*,
-};
-
-enum Strong<'a, T: ?Sized> {
-    Callback(Box<dyn 'a + FnMut(&T)>),
-    Listener(Rc<dyn 'a + Listener<T>>),
+struct Inner<T> {
+    subs: Vec<Box<dyn FnMut(&T)>>,
+    inner: T
 }
 
-enum Weak<'a, T: ?Sized> {
-    Callback(Box<dyn 'a + FnMut(&T) -> bool>),
-    Listener(rc::Weak<dyn 'a + Listener<T>>),
+pub struct Readable<T> {
+    inner: UnsafeCell<Inner<T>>
 }
 
-/// A state cell that cannot be written to
-#[repr(transparent)]
-pub struct ReadState<'a, T: ?Sized> (pub(crate) State<'a, T>);
-
-pub struct State<'a, T: ?Sized> {
-    strong: UnsafeCell<Vec<Strong<'a, T>>>,
-    weak: UnsafeCell<Vec<Weak<'a, T>>>,
-    inner: UnsafeCell<T>,
+pub struct Writeable<T> {
+    inner: Readable<T>
 }
 
-pub trait Listener<T: ?Sized> {
-    fn receive(&self, v: &T);
-}
-
-impl<'a, T: ?Sized> State<'a, T> {
+impl<T> Readable<T> {
     #[inline]
-    pub fn new(v: T) -> Self
-    where
-        T: Sized,
-    {
-        Self {
-            inner: UnsafeCell::new(v),
-            strong: UnsafeCell::default(),
-            weak: UnsafeCell::default(),
+    pub const fn new (t: T) -> Self {
+        return Self {
+            inner: UnsafeCell::new(Inner {
+                subs: Vec::new(),
+                inner: t
+            })
         }
-    }
-
-    #[inline]
-    pub fn set(&self, v: T)
-    where
-        T: Sized,
-    {
-        unsafe {
-            *self.inner.get() = v;
-            self.notify()
-        }
-    }
-
-    #[inline]
-    pub fn update<F: FnOnce(&mut T)>(&self, f: F) {
-        unsafe {
-            f(&mut *self.inner.get());
-            self.notify()
-        }
-    }
-
-    unsafe fn notify(&self) {
-        // Notify strongly-referenced subscribers
-        // (we don't have to check if we drop them, we never will manually)
-        for sub in (&mut *self.strong.get()).iter_mut() {
-            sub.receive(&*self.inner.get())
-        }
-
-        let subs = &mut *self.weak.get();
-        let mut i = 0;
-        while i < subs.len() {
-            if subs.get_unchecked_mut(i).receive(&*self.inner.get()) {
-                i += 1
-            } else {
-                let _ = subs.swap_remove(i);
-            }
-        }
-    }
-}
-
-impl<'a, T: ?Sized> ReadState<'a, T> {
-    #[inline]
-    pub fn new(v: T) -> Self
-    where
-        T: Sized,
-    {
-        Self(State::new(v))
     }
 
     #[inline]
     pub fn get (&self) -> T where T: Copy {
-        unsafe { *self.0.inner.get() }
+        unsafe { (&*self.inner.get()).inner }
     }
 
     #[inline]
-    pub fn get_clone (&self) -> T where T: Clone {
-        unsafe { &*self.0.inner.get() }.clone()
+    pub fn with<U, F: FnOnce(&T) -> U> (&self, f: F) -> U {
+        unsafe { f(&(&*self.inner.get()).inner) }
     }
 
     #[inline]
-    pub fn with<U, F: FnOnce(&T) -> U>(&self, f: F) -> U {
-        unsafe { f(&*self.0.inner.get()) }
+    pub fn subscribe<F: 'static + FnMut(&T)> (&self, f: F) {
+        Self::subscribe_by_deref(self, f)
     }
 
     #[inline]
-    pub fn map_into<U: 'a, F: 'a + FnMut(&T) -> U> (&self, state: &'a State<U>, mut f: F) {
-        self.register(move |x| state.set(f(x)));
+    pub fn subscribe_boxed (&self, f: Box<dyn FnMut(&T)>) {
+        Self::subscribe_boxed_by_deref(self, f)
+    }
+
+    #[inline]
+    pub fn subscribe_shared<F: 'static + FnMut(&T)> (self: Rc<Self>, f: F) {
+        Self::subscribe_by_deref(self, f)
+    }
+
+    #[inline]
+    pub fn subscribe_shared_boxed (self: Rc<Self>, f: Box<dyn FnMut(&T)>) {
+        Self::subscribe_boxed_by_deref(self, f)
+    }
+
+    #[inline]
+    pub fn subscribe_by_deref<D: Deref<Target = Self>, F: 'static + FnMut(&T)> (this: D, f: F) {
+        Self::subscribe_boxed_by_deref(this, Box::new(f))
     }
     
-    // TODO get rid of listener trait and use flags to determine weak listener release (specially for spans, that may take references from rcs)
     #[inline]
-    pub fn map_shared<U: 'a, F: 'a + FnMut(&T) -> U> (&self, mut f: F) -> Rc<ReadState<'a, U>> {
-        let state = Rc::new(ReadState::new(self.with(&mut f)));
-        let register_state = Rc::downgrade(&state);
-        self.register_weak(move |x| {
-            if let Some(register) = register_state.upgrade() {
-                register.0.set(f(x));
-                return true
-            }
-            return false
-        });
+    pub fn subscribe_boxed_by_deref<D: Deref<Target = Self>> (this: D, f: Box<dyn FnMut(&T)>){
+        unsafe { &mut *this.inner.get() }.subs.push(f)
+    }
+}
 
-        return state
+impl<T> Writeable<T> {
+    #[inline]
+    pub const fn new (t: T) -> Self {
+        return Self {
+            inner: Readable::new(t)
+        }
     }
 
     #[inline]
-    pub fn register<F: 'a + FnMut(&T)>(&self, f: F) {
-        self.register_boxed(Box::new(f))
+    pub fn set (&self, v: T) {
+        let inner = unsafe { &mut *self.inner.inner.get() };
+        inner.inner = v;
+        self.notify()
     }
 
     #[inline]
-    pub fn register_weak<F: 'a + FnMut(&T) -> bool>(&self, f: F) {
-        self.register_weak_boxed(Box::new(f))
+    pub fn replace (&self, v: T) -> T {
+        let inner = unsafe { &mut *self.inner.inner.get() };
+        let prev = core::mem::replace(&mut inner.inner, v);
+        self.notify();
+        return prev
     }
 
     #[inline]
-    pub fn register_boxed(&self, f: Box<dyn 'a + FnMut(&T)>) {
-        unsafe { &mut *self.0.strong.get() }.push(Strong::Callback(f));
+    pub fn take (&self) -> T where T: Default {
+        self.replace(Default::default())
     }
 
     #[inline]
-    pub fn register_weak_boxed(&self, f: Box<dyn 'a + FnMut(&T) -> bool>) {
-        unsafe { &mut *self.0.weak.get() }.push(Weak::Callback(f));
+    pub fn update<U, F: FnOnce(&mut T) -> U> (&self, f: F) -> U {
+        let inner = unsafe { &mut *self.inner.inner.get() };
+        let res = f(&mut inner.inner);
+        self.notify();
+        return res
     }
 
     #[inline]
-    pub fn bind(&self, sub: Rc<dyn 'a + Listener<T>>) {
-        unsafe { &mut *self.0.strong.get() }.push(Strong::Listener(sub));
+    fn notify (&self) {
+        let inner = unsafe { &mut *self.inner.inner.get() };
+        for sub in inner.subs.iter_mut() {
+            sub(&inner.inner)
+        }
     }
+}
+
+impl<T> Deref for Writeable<T> {
+    type Target = Readable<T>;
 
     #[inline]
-    pub fn bind_weak(&self, weak: rc::Weak<dyn 'a + Listener<T>>) {
-        unsafe { &mut *self.0.weak.get() }.push(Weak::Listener(weak));
+    fn deref(&self) -> &Self::Target {
+        &self.inner
     }
 }
 
 macro_rules! impl_assign {
-    ($($trait:ident as $fn:ident),+) => {
+    ($($trait:ident as $f:ident),+) => {
         $(
-            impl<T: ?Sized + $trait<Rhs>, Rhs> $trait<Rhs> for State<'_, T> {
+            impl<T: $trait<U>, U> $trait<U> for Writeable<T> {
                 #[inline]
-                fn $fn(&mut self, rhs: Rhs) {
-                    self.update(|x| x.$fn(rhs))
+                fn $f (&mut self, rhs: U) {
+                    self.update(|x| x.$f(rhs))
                 }
             }
-
-            impl<'a, T: ?Sized> State<'a, T> {
+    
+            impl<T> Writeable<T> {
                 #[inline]
-                pub fn $fn<Rhs> (&self, rhs: Rhs) where T: $trait<Rhs> {
-                    self.update(|x| x.$fn(rhs))
+                pub fn $f<U> (&self, rhs: U) where T: $trait<U> {
+                    self.update(|x| x.$f(rhs))
                 }
             }
         )+
@@ -185,77 +147,7 @@ impl_assign! {
     RemAssign as rem_assign,
     BitAndAssign as bitand_assign,
     BitOrAssign as bitor_assign,
-    BitXorAssign as bitxor_assign
-}
-
-impl<'a, T> From<State<'a, T>> for ReadState<'a, T> {
-    #[inline]
-    fn from(value: State<'a, T>) -> Self {
-        Self(value)
-    }
-}
-
-impl<'a, T: ?Sized> Deref for State<'a, T> {
-    type Target = ReadState<'a, T>;
-
-    #[inline]
-    fn deref(&self) -> &Self::Target {
-        unsafe {
-            &*(self as *const Self as *const ReadState<'a, T>)
-        }
-    }
-}
-
-impl<T: ?Sized + Display> Display for State<'_, T> {
-    #[inline]
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        unsafe { T::fmt(&*self.inner.get(), f) }
-    }
-}
-
-impl<V: ?Sized, T: ?Sized + Listener<V>> Listener<V> for &T {
-    #[inline]
-    fn receive(&self, v: &V) {
-        T::receive(*self, v)
-    }
-}
-
-impl<V: ?Sized, T: ?Sized + Listener<V>> Listener<V> for Box<T> {
-    #[inline]
-    fn receive(&self, v: &V) {
-        T::receive(self, v)
-    }
-}
-
-impl<V: ?Sized, T: ?Sized + Listener<V>> Listener<V> for Rc<T> {
-    #[inline]
-    fn receive(&self, v: &V) {
-        T::receive(self, v)
-    }
-}
-
-impl<'a, T: ?Sized> Strong<'a, T> {
-    #[inline]
-    pub fn receive(&mut self, v: &T) {
-        match self {
-            Self::Callback(f) => f(v),
-            Self::Listener(l) => l.receive(v),
-        }
-    }
-}
-
-impl<'a, T: ?Sized> Weak<'a, T> {
-    #[inline]
-    pub fn receive(&mut self, v: &T) -> bool {
-        match self {
-            Self::Callback(f) => f(v),
-            Self::Listener(l) => match l.upgrade() {
-                Some(l) => {
-                    l.receive(v);
-                    true
-                }
-                None => false,
-            },
-        }
-    }
+    BitXorAssign as bitxor_assign,
+    ShlAssign as shl_assign,
+    ShrAssign as shr_assign
 }

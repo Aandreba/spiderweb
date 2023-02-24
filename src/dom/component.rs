@@ -1,74 +1,83 @@
-use super::{Element};
-use std::{any::Any};
-use wasm_bindgen::{prelude::wasm_bindgen, JsValue};
+use wasm_bindgen::JsValue;
+use super::element::{Element, ElementRef};
+use std::{cell::UnsafeCell, pin::Pin};
 
-#[wasm_bindgen]
-extern "C" {
-    /// Raw DOM [Node](https://developer.mozilla.org/en-US/docs/Web/API/Node)
-    #[wasm_bindgen(js_name = Node, typescript_type = "Node")]
-    #[derive(Debug, Clone, PartialEq)]
-    pub type DomNode;
-
-    #[wasm_bindgen(structural, method, getter, js_name = parentNode)]
-    pub fn parent_node (this: &DomNode) -> Option<DomNode>;
-    #[wasm_bindgen(structural, method, getter, js_name = firstChild)]
-    pub fn first_child (this: &DomNode) -> Option<DomNode>;
-    #[wasm_bindgen(structural, method, catch, js_name = appendChild)]
-    pub fn append_child(this: &DomNode, node: &DomNode) -> Result<DomNode, JsValue>;
-    #[wasm_bindgen(structural, method, catch, js_name = removeChild)]
-    pub fn remove_child(this: &DomNode, node: &DomNode) -> Result<DomNode, JsValue>;
+pub struct Component<T: ?Sized> {
+    pub(super) element: Element,
+    state: UnsafeCell<T>,
 }
 
-cfg_if::cfg_if! {
-    if #[cfg(feature = "nightly")] {
-        /// Component without inherent state
-        pub trait StatelessComponent = Component<State = ()>;
-    } else {
-        /// Component without inherent state
-        pub trait StatelessComponent: Component<State = ()> {}
-        impl<T: Component<State = ()>> StatelessComponent for T {}
+pub struct ComponentChild<'e, 's, T: ?Sized> {
+    element: ElementRef<'e>,
+    state: Pin<&'s UnsafeCell<T>>,
+}
+
+impl<T> Component<T> {
+    #[inline]
+    pub fn new(tag: &str, state: T) -> Self {
+        return Self {
+            element: Element::new(tag),
+            state: UnsafeCell::new(state),
+        };
+    }
+
+    #[inline]
+    pub fn append_child_pinned (self: Pin<&Self>, element: Element) -> Result<ComponentChild<'_, '_, T>, JsValue> { 
+        unsafe { self.get_ref().append_child_unchecked(element) }
+    }
+   
+    #[inline]
+    pub fn append_child (&self, element: Element) -> Result<ComponentChild<'_, '_, T>, JsValue> where T: Unpin { 
+        unsafe { self.append_child_unchecked(element) }
+    }
+    
+    #[inline]
+    pub unsafe fn append_child_unchecked (&self, element: Element) -> Result<ComponentChild<'_, '_, T>, JsValue> { 
+        let element = self.element.append_child(element)?;
+        return Ok(ComponentChild { element, state: Pin::new_unchecked(&self.state) })
+    }
+
+    #[inline]
+    pub fn add_event_listener<F: FnMut(&mut T)>(self: Pin<&Self>, event: &'static str, mut f: F) {
+        let f = move || unsafe {
+            f(&mut *self.state.get());
+        };
+
+        let f = unsafe {
+            core::mem::transmute::<Box<dyn FnMut()>, Box<dyn 'static + FnMut()>>(Box::new(f))
+        };
+        let _handle = self.element.add_event_listener(event, f);
     }
 }
 
-/// A type that can be added to the DOM
-pub trait Component {
-    type State: Any;
-
-    fn render (self) -> Result<Element<Self::State>, JsValue>;
-}
-
-impl<T: Component> Component for Result<T, JsValue> {
-    type State = T::State;
-
+impl<'e, 's, T> ComponentChild<'e, 's, T> {
     #[inline]
-    fn render (self) -> Result<Element<Self::State>, JsValue> {
-        self.and_then(T::render)
+    pub fn append_child<'e1> (&'e1 self, element: Element) -> Result<ComponentChild<'e1, 's, T>, JsValue> where 'e: 'e1 { 
+        let element = self.element.append_child(element)?;
+        return Ok(ComponentChild { element, state: self.state })
     }
-}
-
-impl<T: Component> Component for Box<T> {
-    type State = T::State;
 
     #[inline]
-    fn render(self) -> Result<Element<Self::State>, JsValue> {
-        T::render(*self)
+    pub fn add_event_listener<F: FnMut(&mut T)>(&self, event: &'static str, mut f: F) where T: Unpin {
+        let f = move || unsafe {
+            f(&mut *self.state.get());
+        };
+
+        let f = unsafe {
+            core::mem::transmute::<Box<dyn FnMut()>, Box<dyn 'static + FnMut()>>(Box::new(f))
+        };
+        let _handle = self.element.add_event_listener(event, f);
     }
-}
-
-/// A type that can be converted into a [`Component`]
-pub trait IntoComponent {
-    type Component: Component<State = Self::State>;
-    type State: Any;
-
-    fn into_component (self) -> Self::Component;
-}
-
-impl<T: Component> IntoComponent for T {
-    type Component = T;
-    type State = <T as Component>::State;
-
+    
     #[inline]
-    fn into_component (self) -> Self::Component {
-        self
+    pub fn add_event_listener_pinned<F: FnMut(Pin<&mut T>)>(&self, event: &'static str, mut f: F) {
+        let f = move || unsafe {
+            f(Pin::new_unchecked(&mut *self.state.get()));
+        };
+
+        let f = unsafe {
+            core::mem::transmute::<Box<dyn FnMut()>, Box<dyn 'static + FnMut()>>(Box::new(f))
+        };
+        let _handle = self.element.add_event_listener(event, f);
     }
 }
