@@ -1,111 +1,138 @@
 use std::{cell::UnsafeCell, ops::*, rc::Rc};
 
-struct Inner<T> {
-    subs: Vec<Box<dyn FnMut(&T)>>,
-    inner: T
+pub struct Readable<T: ?Sized> {
+    strong: UnsafeCell<Vec<Box<dyn FnMut(&T)>>>,
+    weak: UnsafeCell<Vec<Box<dyn FnMut(&T) -> bool>>>,
+    inner: UnsafeCell<T>,
 }
 
-pub struct Readable<T> {
-    inner: UnsafeCell<Inner<T>>
+#[repr(transparent)]
+pub struct Writeable<T: ?Sized> {
+    inner: Readable<T>,
 }
 
-pub struct Writeable<T> {
-    inner: Readable<T>
-}
-
-impl<T> Readable<T> {
+impl<T: ?Sized> Readable<T> {
     #[inline]
-    pub const fn new (t: T) -> Self {
+    pub const fn new(t: T) -> Self where T: Sized {
         return Self {
-            inner: UnsafeCell::new(Inner {
-                subs: Vec::new(),
-                inner: t
-            })
-        }
+            strong: UnsafeCell::new(Vec::new()),
+            weak: UnsafeCell::new(Vec::new()),
+            inner: UnsafeCell::new(t),
+        };
     }
 
     #[inline]
-    pub fn get (&self) -> T where T: Copy {
-        unsafe { (&*self.inner.get()).inner }
+    pub fn get(&self) -> T
+    where
+        T: Copy,
+    {
+        unsafe { *self.inner.get() }
     }
 
     #[inline]
-    pub fn with<U, F: FnOnce(&T) -> U> (&self, f: F) -> U {
-        unsafe { f(&(&*self.inner.get()).inner) }
+    pub fn with<U, F: FnOnce(&T) -> U>(&self, f: F) -> U {
+        unsafe { f(&*self.inner.get()) }
     }
 
     #[inline]
-    pub fn subscribe<F: 'static + FnMut(&T)> (&self, f: F) {
-        Self::subscribe_by_deref(self, f)
+    pub fn map<U: 'static, F: 'static + FnMut(&T) -> U>(&self, mut f: F) -> Rc<Readable<U>> {
+        let result = Rc::new(Writeable::new(self.with(&mut f)));
+        let target = Rc::downgrade(&result);
+
+        self.subscribe_weak(move |x| match target.upgrade() {
+            Some(target) => {
+                target.set(f(x));
+                true
+            }
+            None => false,
+        });
+
+        return unsafe { Rc::from_raw(Rc::into_raw(result).cast()) };
     }
 
     #[inline]
-    pub fn subscribe_boxed (&self, f: Box<dyn FnMut(&T)>) {
-        Self::subscribe_boxed_by_deref(self, f)
+    pub fn map_into<U: 'static, F: 'static + FnMut(&T) -> U>(
+        &self,
+        target: Writeable<U>,
+        mut f: F,
+    ) {
+        self.subscribe(move |x| target.set(f(x)))
     }
 
     #[inline]
-    pub fn subscribe_shared<F: 'static + FnMut(&T)> (self: Rc<Self>, f: F) {
-        Self::subscribe_by_deref(self, f)
+    pub fn subscribe<F: 'static + FnMut(&T)>(&self, f: F) {
+        self.subscribe_boxed(Box::new(f))
     }
 
     #[inline]
-    pub fn subscribe_shared_boxed (self: Rc<Self>, f: Box<dyn FnMut(&T)>) {
-        Self::subscribe_boxed_by_deref(self, f)
+    pub fn subscribe_weak<F: 'static + FnMut(&T) -> bool>(&self, f: F) {
+        self.subscribe_weak_boxed(Box::new(f))
     }
 
     #[inline]
-    pub fn subscribe_by_deref<D: Deref<Target = Self>, F: 'static + FnMut(&T)> (this: D, f: F) {
-        Self::subscribe_boxed_by_deref(this, Box::new(f))
+    pub fn subscribe_boxed(&self, f: Box<dyn FnMut(&T)>) {
+        unsafe { &mut *self.strong.get() }.push(f)
     }
-    
+
     #[inline]
-    pub fn subscribe_boxed_by_deref<D: Deref<Target = Self>> (this: D, f: Box<dyn FnMut(&T)>){
-        unsafe { &mut *this.inner.get() }.subs.push(f)
+    pub fn subscribe_weak_boxed(&self, f: Box<dyn FnMut(&T) -> bool>) {
+        unsafe { &mut *self.weak.get() }.push(f)
     }
 }
 
-impl<T> Writeable<T> {
+impl<T: ?Sized> Writeable<T> {
     #[inline]
-    pub const fn new (t: T) -> Self {
+    pub const fn new(t: T) -> Self where T: Sized {
         return Self {
-            inner: Readable::new(t)
-        }
+            inner: Readable::new(t),
+        };
     }
 
     #[inline]
-    pub fn set (&self, v: T) {
-        let inner = unsafe { &mut *self.inner.inner.get() };
-        inner.inner = v;
+    pub fn set(&self, v: T) where T: Sized {
+        unsafe { *self.inner.inner.get() = v };
         self.notify()
     }
 
     #[inline]
-    pub fn replace (&self, v: T) -> T {
-        let inner = unsafe { &mut *self.inner.inner.get() };
-        let prev = core::mem::replace(&mut inner.inner, v);
+    pub fn replace(&self, v: T) -> T where T: Sized {
+        let prev = core::mem::replace(unsafe { &mut *self.inner.inner.get() }, v);
         self.notify();
-        return prev
+        return prev;
     }
 
     #[inline]
-    pub fn take (&self) -> T where T: Default {
+    pub fn take(&self) -> T
+    where
+        T: Default,
+    {
         self.replace(Default::default())
     }
 
     #[inline]
-    pub fn update<U, F: FnOnce(&mut T) -> U> (&self, f: F) -> U {
-        let inner = unsafe { &mut *self.inner.inner.get() };
-        let res = f(&mut inner.inner);
+    pub fn update<U, F: FnOnce(&mut T) -> U>(&self, f: F) -> U {
+        let res = f(unsafe { &mut *self.inner.inner.get() });
         self.notify();
-        return res
+        return res;
     }
 
     #[inline]
-    fn notify (&self) {
-        let inner = unsafe { &mut *self.inner.inner.get() };
-        for sub in inner.subs.iter_mut() {
-            sub(&inner.inner)
+    fn notify(&self) {
+        let inner = unsafe { &*self.inner.inner.get() };
+        let strong = unsafe { &mut *self.inner.strong.get() };
+        let weak = unsafe { &mut *self.inner.weak.get() };
+
+        for sub in strong.iter_mut() {
+            sub(inner)
+        }
+
+        let mut i = 0;
+        while i < weak.len() {
+            if !unsafe { weak.get_unchecked_mut(i) }(inner) {
+                weak.swap_remove(i);
+            } else {
+                i += 1
+            }
         }
     }
 }
@@ -128,7 +155,7 @@ macro_rules! impl_assign {
                     self.update(|x| x.$f(rhs))
                 }
             }
-    
+
             impl<T> Writeable<T> {
                 #[inline]
                 pub fn $f<U> (&self, rhs: U) where T: $trait<U> {
